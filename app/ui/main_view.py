@@ -141,27 +141,43 @@ def _name(path: Path | None) -> str | None:
 def App() -> ft.Control:
     state, _ = ft.use_state(AppState())
 
-    # FilePicker-сервисы (создаются один раз, монтируются в дерево).
-    db_picker = ft.use_ref(
-        lambda: ft.FilePicker(on_result=lambda e: state.set_db(e.files[0].path if e.files else None))
-    )
-    rpd_picker = ft.use_ref(
-        lambda: ft.FilePicker(on_result=lambda e: state.set_rpd(e.files[0].path if e.files else None))
-    )
-    fos_picker = ft.use_ref(
-        lambda: ft.FilePicker(on_result=lambda e: state.set_fos(e.files[0].path if e.files else None))
-    )
-    files_picker = ft.use_ref(
-        lambda: ft.FilePicker(
-            on_result=lambda e: state.add_files([f.path for f in e.files] if e.files else [])
-        )
-    )
-    dir_picker = ft.use_ref(
-        lambda: ft.FilePicker(on_result=lambda e: state.add_dir(e.path))
-    )
-    save_picker = ft.use_ref(
-        lambda: ft.FilePicker(on_result=lambda e: state.save_zip_to(e.path))
-    )
+    # FilePicker-сервисы (создаются один раз, монтируются в дерево). В Flet 0.85
+    # методы pick_files/get_directory_path/save_file асинхронные и возвращают
+    # результат напрямую (без on_result).
+    db_picker = ft.use_ref(lambda: ft.FilePicker())
+    rpd_picker = ft.use_ref(lambda: ft.FilePicker())
+    fos_picker = ft.use_ref(lambda: ft.FilePicker())
+    files_picker = ft.use_ref(lambda: ft.FilePicker())
+    dir_picker = ft.use_ref(lambda: ft.FilePicker())
+    save_picker = ft.use_ref(lambda: ft.FilePicker())
+
+    async def pick_db(e: ft.Event[ft.Control]) -> None:
+        files = await db_picker.current.pick_files(allow_multiple=False)
+        if files:
+            state.set_db(files[0].path)
+
+    async def pick_rpd(e: ft.Event[ft.Control]) -> None:
+        files = await rpd_picker.current.pick_files(allow_multiple=False)
+        if files:
+            state.set_rpd(files[0].path)
+
+    async def pick_fos(e: ft.Event[ft.Control]) -> None:
+        files = await fos_picker.current.pick_files(allow_multiple=False)
+        if files:
+            state.set_fos(files[0].path)
+
+    async def pick_inputs(e: ft.Event[ft.Control]) -> None:
+        files = await files_picker.current.pick_files(allow_multiple=True)
+        if files:
+            state.add_files([f.path for f in files])
+
+    async def pick_dir(e: ft.Event[ft.Control]) -> None:
+        directory = await dir_picker.current.get_directory_path()
+        state.add_dir(directory)
+
+    async def download(e: ft.Event[ft.Control]) -> None:
+        dest = await save_picker.current.save_file(file_name="EduConvert_результат.zip")
+        state.save_zip_to(dest)
 
     # --- Зона 1: настройки --- #
     settings_zone = ft.Column(
@@ -169,20 +185,17 @@ def App() -> ft.Control:
         controls=[
             ft.Text("1. Базовые файлы", size=16, weight=ft.FontWeight.BOLD),
             UploadCard("База данных (Excel)", _name(state.db_path), state.db_ok,
-                       ft.Icons.TABLE_VIEW,
-                       lambda e: db_picker.current.pick_files(allow_multiple=False)),
+                       ft.Icons.TABLE_VIEW, pick_db),
             UploadCard("Шаблон РПД (2026)", _name(state.rpd_path), state.rpd_ok,
-                       ft.Icons.DESCRIPTION,
-                       lambda e: rpd_picker.current.pick_files(allow_multiple=False)),
+                       ft.Icons.DESCRIPTION, pick_rpd),
             UploadCard("Шаблон ФОС (2026)", _name(state.fos_path), state.fos_ok,
-                       ft.Icons.FACT_CHECK,
-                       lambda e: fos_picker.current.pick_files(allow_multiple=False)),
+                       ft.Icons.FACT_CHECK, pick_fos),
         ],
     )
 
     # --- Зона 2: рабочая область (выбор исходников) --- #
     drop_zone = ft.Container(
-        border=ft.border.all(2, ft.Colors.OUTLINE_VARIANT),
+        border=ft.Border.all(2, ft.Colors.OUTLINE_VARIANT),
         border_radius=12,
         padding=24,
         bgcolor=ft.Colors.SURFACE_CONTAINER_LOW,
@@ -198,9 +211,9 @@ def App() -> ft.Control:
                     spacing=10,
                     controls=[
                         ft.FilledButton("Выбрать файлы", icon=ft.Icons.NOTE_ADD,
-                                        on_click=lambda e: files_picker.current.pick_files(allow_multiple=True)),
+                                        on_click=pick_inputs),
                         ft.OutlinedButton("Выбрать папку", icon=ft.Icons.FOLDER,
-                                          on_click=lambda e: dir_picker.current.get_directory_path()),
+                                          on_click=pick_dir),
                         ft.TextButton("Очистить", icon=ft.Icons.CLEAR,
                                       on_click=lambda e: state.clear_inputs()),
                     ],
@@ -254,9 +267,7 @@ def App() -> ft.Control:
             ft.FilledButton(
                 "Скачать результаты (.zip)",
                 icon=ft.Icons.DOWNLOAD,
-                on_click=lambda e: save_picker.current.save_file(
-                    file_name="EduConvert_результат.zip"
-                ),
+                on_click=download,
             ),
         ]
 
@@ -273,13 +284,12 @@ def App() -> ft.Control:
         ),
     )
 
+    # FilePicker — это сервисы, а не визуальные контролы: создаются через use_ref
+    # (автоматически регистрируются на странице) и НЕ добавляются в дерево controls.
     return ft.Column(
         expand=True,
         spacing=0,
         controls=[
-            # невидимые сервисы-пикеры
-            db_picker.current, rpd_picker.current, fos_picker.current,
-            files_picker.current, dir_picker.current, save_picker.current,
             header,
             ft.Container(
                 expand=True,

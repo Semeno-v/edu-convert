@@ -81,7 +81,7 @@ def ReportTable(results: list[FileResult]) -> ft.Control:
         ft.Text("Расхождения чисел (в документы записаны значения из Базы):",
                 weight=ft.FontWeight.BOLD),
         ft.Container(
-            border=ft.border.all(1, ft.Colors.OUTLINE_VARIANT),
+            border=ft.Border.all(1, ft.Colors.OUTLINE_VARIANT),
             border_radius=8,
             content=ft.ListView(controls=diff_rows, spacing=0, height=220),
         ),
