@@ -47,11 +47,12 @@ logger = logging.getLogger("educonvert.orchestrator")
 
 ProgressCallback = Callable[[int, int, str], None]
 
+# Колонки сводного отчёта — дословно по ТЗ §8.
 _REPORT_COLUMNS = [
-    "Имя файла",
-    "Индекс",
+    "Имя исходного файла",
+    "Индекс дисциплины",
     "Статус",
-    "Описание",
+    "Описание ошибки или расхождения",
     "Значение в старом файле",
     "Значение в Базе",
 ]
@@ -233,17 +234,18 @@ class Orchestrator:
     def _write_report(self, report: RunReport, out_dir: Path) -> Path:
         rows: list[dict[str, str]] = []
         for r in report.results:
-            base = {"Имя файла": r.filename, "Индекс": r.index or ""}
+            base = {"Имя исходного файла": r.filename, "Индекс дисциплины": r.index or ""}
+            desc = "Описание ошибки или расхождения"
             if r.status == FileStatus.ERROR:
-                rows.append({**base, "Статус": r.status.value, "Описание": r.message,
+                rows.append({**base, "Статус": r.status.value, desc: r.message,
                              "Значение в старом файле": "", "Значение в Базе": ""})
             elif r.diffs:
                 for d in r.diffs:
-                    rows.append({**base, "Статус": r.status.value, "Описание": d.field,
+                    rows.append({**base, "Статус": r.status.value, desc: d.field,
                                  "Значение в старом файле": d.old_value,
                                  "Значение в Базе": d.new_value})
             else:
-                rows.append({**base, "Статус": r.status.value, "Описание": "",
+                rows.append({**base, "Статус": r.status.value, desc: "",
                              "Значение в старом файле": "", "Значение в Базе": ""})
 
         if not rows:
