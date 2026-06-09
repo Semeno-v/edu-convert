@@ -187,6 +187,51 @@ def test_para_to_rich_hyperlink_only_paragraph() -> None:
 
 
 # --------------------------------------------------------------------------- #
+#  Стоп-заголовки: хвосты следующего раздела не утекают в перенесённый блок
+# --------------------------------------------------------------------------- #
+def test_stop_headings_close_block(extractor: WordExtractor, tmp_path: Path) -> None:
+    doc = Document()
+    doc.add_paragraph("3. Структура и содержание дисциплины")
+    doc.add_paragraph("Тема 1. Введение")
+    doc.add_paragraph("4. Учебно-методическое обеспечение дисциплины")
+    doc.add_paragraph("4.1 Рекомендуемая литература по дисциплине")
+    doc.add_paragraph("4.1.1. Основная литература")
+    doc.add_paragraph("Иванов И.И. Книга.")
+    path = tmp_path / "stop.docx"
+    doc.save(str(path))
+
+    content = extractor.extract(path, DocType.RPD)
+    plan = content.get("thematic_plan")
+    assert plan is not None
+    plan_text = " ".join(e.paragraph.text for e in plan.elements if e.paragraph)
+    assert "Тема 1" in plan_text
+    assert "Учебно-методическое" not in plan_text   # хвост не утёк в §3
+    assert "Рекомендуемая литература" not in plan_text
+    main = content.get("literature_main")
+    assert main is not None and not main.is_empty   # литература ловится своим правилом
+
+
+def test_stop_heading_content_dropped(extractor: WordExtractor, tmp_path: Path) -> None:
+    doc = Document()
+    doc.add_paragraph("4.2 Ресурсы сети Интернет")
+    doc.add_paragraph("https://example.org")
+    doc.add_paragraph("4.3 Дополнительные средства обучения (в том числе on-line курсы)")
+    doc.add_paragraph("Не предусмотрено.")
+    doc.add_paragraph("4.4 Профессиональные базы данных и информационно-справочные системы")
+    doc.add_paragraph("СПС Гарант")
+    path = tmp_path / "drop.docx"
+    doc.save(str(path))
+
+    content = extractor.extract(path, DocType.RPD)
+    res = content.get("internet_resources")
+    assert res is not None
+    text = " ".join(e.paragraph.text for e in res.elements if e.paragraph)
+    assert "https://example.org" in text
+    assert "СПС Гарант" in text            # ПБД сливаются в интернет-ресурсы
+    assert "Не предусмотрено" not in text  # заглушка из стоп-раздела отброшена
+
+
+# --------------------------------------------------------------------------- #
 #  IR-преобразования напрямую
 # --------------------------------------------------------------------------- #
 def test_para_to_rich_runs(tmp_path: Path) -> None:
