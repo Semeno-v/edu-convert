@@ -203,3 +203,38 @@ def test_generate_fos(
     assert out.exists()
     xml = zipfile.ZipFile(out).read("word/document.xml").decode("utf-8", "replace")
     assert "Б1.О.01" in xml  # индекс на титуле
+
+
+def _nested_block_in_wt(xml: str) -> list[str]:
+    """Имена дочерних элементов внутри текстовых узлов w:t (валидный OOXML — пусто)."""
+    from lxml import etree
+
+    w = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+    root = etree.fromstring(xml.encode("utf-8"))
+    return [child.tag for t in root.iter(w + "t") for child in t]
+
+
+@pytest.mark.parametrize("doc_type", [DocType.RPD, DocType.FOS])
+def test_subdoc_content_is_valid_ooxml(
+    generator: DocxtplGenerator, subject: SubjectData, content: ContentBlocks,
+    tmp_path: Path, doc_type: DocType,
+) -> None:
+    # Subdoc-теги размечены как {{p …}}: блочный XML ложится на уровень body,
+    # а не внутрь w:t (это невалидный OOXML, его не видит python-docx).
+    template = settings.rpd_template if doc_type == DocType.RPD else settings.fos_template
+    out = tmp_path / f"valid_{doc_type.value}.docx"
+    generator.generate(template, out, subject, content, doc_type)
+    xml = zipfile.ZipFile(out).read("word/document.xml").decode("utf-8", "replace")
+    assert _nested_block_in_wt(xml) == []
+
+
+def test_subdoc_content_visible_to_python_docx(
+    generator: DocxtplGenerator, subject: SubjectData, content: ContentBlocks, tmp_path: Path
+) -> None:
+    # После валидной вставки subdoc-контент виден обычным python-docx.
+    out = tmp_path / "visible.docx"
+    generator.generate(settings.rpd_template, out, subject, content, DocType.RPD)
+    doc = Document(str(out))
+    text = "\n".join(p.text for p in doc.paragraphs)
+    assert "Способен критически мыслить" in text  # §2 из Базы
+    assert "Иванов" in text                        # §4 литература из исходника

@@ -65,7 +65,8 @@ class DocxtplGenerator:
         with zipfile.ZipFile(template_path) as zf:
             xml = zf.read("word/document.xml").decode("utf-8", "replace")
         text = re.sub(r"<[^>]+>", "", xml)
-        return set(re.findall(r"\{\{\s*r?\s*([a-zA-Z_][a-zA-Z0-9_]*)", text))
+        # Учитываем префиксы docxtpl: {{r …}} (RichText) и {{p …}} (блочный subdoc).
+        return set(re.findall(r"\{\{\s*(?:[pr]\s+)?([a-zA-Z_][a-zA-Z0-9_]*)", text))
 
     def generate(
         self,

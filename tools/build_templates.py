@@ -109,18 +109,21 @@ def tag_rpd(src: Path, dst: Path) -> None:
             set_label_value(p, "форма обучения ", "{{ form_study }}")
         elif "цели в исходной программе нет" in t:
             clear(p)  # целей в исходных РПД нет — раздел заполняется вручную
+        # Subdoc-теги — с префиксом «p»: docxtpl убирает абзац-носитель и
+        # вставляет блочный XML на уровень body (иначе w:p вкладывается в w:t —
+        # невалидный OOXML, контент не виден python-docx и др. потребителям).
         elif "из п. 2 исходной рпд (столбцы 2,3)" in t:
-            set_text(p, "{{ competencies }}")
+            set_text(p, "{{p competencies }}")
         elif "из п. 2 исходной рпд (столбец 4)" in t:
-            set_text(p, "{{ indicators }}")
+            set_text(p, "{{p indicators }}")
         elif "из исходной рпд п.3" in t:
-            set_text(p, "{{ thematic_plan }}")  # тематический план из старого документа (best-effort)
+            set_text(p, "{{p thematic_plan }}")  # тематический план из старого документа (best-effort)
         elif "указать основную литературу" in t:
-            set_text(p, "{{ literature_main }}")
+            set_text(p, "{{p literature_main }}")
         elif "указать дополнительную литературу" in t:
-            set_text(p, "{{ literature_extra }}")
+            set_text(p, "{{p literature_extra }}")
         elif "указать ресурсы сети интернет" in t:
-            set_text(p, "{{ internet_resources }}")
+            set_text(p, "{{p internet_resources }}")
         elif "берем из учебного плана" in t:
             clear(p)
         elif t.startswith("заседания кафедры"):
@@ -244,9 +247,9 @@ def tag_fos(src: Path, dst: Path) -> None:
         elif t.startswith("форма обучения"):
             set_label_value(p, "форма обучения ", "{{ form_study }}")
         elif "примерный перечень задач" in t:
-            set_text(p, "{{ current_control }}")
+            set_text(p, "{{p current_control }}")  # subdoc — см. комментарий в tag_rpd
         elif "примерный состав тестовых вопросов" in t:
-            set_text(p, "{{ interim_attestation }}")
+            set_text(p, "{{p interim_attestation }}")
         elif t.startswith("задачи к разделу") or t.startswith("задача") or t == "ответ:":
             clear(p)
         elif "обязательно с ответами" in t:
@@ -259,7 +262,7 @@ def tag_fos(src: Path, dst: Path) -> None:
             gia_heading = p
 
     if gia_heading is not None:
-        insert_after(gia_heading, "{{ gia }}")
+        insert_after(gia_heading, "{{p gia }}")
 
     strip_red_highlights(doc)
     dst.parent.mkdir(parents=True, exist_ok=True)
