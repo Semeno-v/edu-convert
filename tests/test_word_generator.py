@@ -16,6 +16,8 @@ from docx import Document
 from app.config import settings
 from app.core.exceptions import TemplateValidationError
 from app.core.models import (
+    CompetencyGroup,
+    CompetencyIndicator,
     ContentBlock,
     ContentBlocks,
     ContentElement,
@@ -45,17 +47,31 @@ def subject() -> SubjectData:
         hours_contact=30, hours_aud=28, hours_lectures=12, hours_practical=10,
         hours_lab=0, hours_project=6, hours_srs=78, hours_control=0,
         control_forms=(ControlForm(kind=ControlKind.CREDIT, semester=1),),
+        competence_codes=("УК-1-И-1", "ПК-2-И-1"),
+        competencies=(
+            CompetencyGroup(code="УК-1", text="Способен критически мыслить",
+                            indicators=(CompetencyIndicator(code="УК-1-И-1", text="Анализирует проблему"),)),
+            CompetencyGroup(code="ПК-2", text="Способен моделировать",
+                            indicators=(CompetencyIndicator(code="ПК-2-И-1", text="Строит модель"),)),
+        ),
     )
+
+
+def _lit_table() -> RichTable:
+    def cell(t: str) -> RichTableCell:
+        return RichTableCell(paragraphs=[RichParagraph(runs=[RichRun(text=t)])])
+    head = RichTableRow(cells=[cell("№"), cell("Автор(ы)"), cell("Наименование"),
+                               cell("Выходные данные"), cell("URL")])
+    row = RichTableRow(cells=[cell("1"), cell("Иванов И.И."), cell("Книга про науку"),
+                              cell("М., 2023. 200 с."), cell("URL: https://e.lib/1")])
+    return RichTable(rows=[head, row])
 
 
 @pytest.fixture
 def content() -> ContentBlocks:
     block = ContentBlock(
         key="literature_main", title="Основная литература",
-        elements=[ContentElement(
-            kind=ElementKind.PARAGRAPH,
-            paragraph=RichParagraph(runs=[RichRun(text="Иванов И.И. Книга.", bold=True)]),
-        )],
+        elements=[ContentElement(kind=ElementKind.TABLE, table=_lit_table())],
     )
     return ContentBlocks(index="Б1.О.01", direction="09.04.03", profile="Профиль",
                          form_study="очная", blocks={"literature_main": block})
@@ -103,9 +119,23 @@ def test_generate_uses_excel_numbers(
     assert hours.get("lec") == "12"
     assert hours.get("pr") == "10"
 
-    # Текстовый блок перенесён в документ.
     xml = zipfile.ZipFile(out).read("word/document.xml").decode("utf-8", "replace")
+    # Литература переформатирована из таблицы в список — автор присутствует.
     assert "Иванов" in xml
+    # Жёлтая подсветка заполненного присутствует.
+    assert '<w:highlight w:val="yellow"' in xml
+
+
+def test_competencies_built_from_base(
+    generator: DocxtplGenerator, subject: SubjectData, tmp_path: Path
+) -> None:
+    # §2 строится из Базы (subject.competencies), даже при пустом ContentBlocks.
+    out = tmp_path / "out_comp.docx"
+    generator.generate(settings.rpd_template, out, subject, ContentBlocks(), DocType.RPD)
+    xml = zipfile.ZipFile(out).read("word/document.xml").decode("utf-8", "replace")
+    assert "Способен критически мыслить" in xml  # текст компетенции
+    assert "Анализирует проблему" in xml          # текст индикатора
+    assert "ПК-2" in xml                           # родительский код в §8
 
 
 def test_generate_empty_block_placeholder(
@@ -118,25 +148,21 @@ def test_generate_empty_block_placeholder(
     assert out.exists()
 
 
-def test_generate_with_table_and_list(
+def test_generate_thematic_table_highlighted(
     generator: DocxtplGenerator, subject: SubjectData, tmp_path: Path
 ) -> None:
-    # Блок с таблицей и элементом списка — покрывает _add_table и список в _add_paragraph.
+    # Контентная таблица (тематический план) переносится и подсвечивается жёлтым.
     table = RichTable(rows=[RichTableRow(cells=[
-        RichTableCell(paragraphs=[RichParagraph(runs=[RichRun(text="Код")])]),
-        RichTableCell(paragraphs=[RichParagraph(runs=[RichRun(text="Наименование")])]),
+        RichTableCell(paragraphs=[RichParagraph(runs=[RichRun(text="Тема-АБВ")])]),
     ])])
-    block = ContentBlock(key="competencies", title="Компетенции", elements=[
-        ContentElement(kind=ElementKind.TABLE, table=table),
-        ContentElement(kind=ElementKind.PARAGRAPH,
-                       paragraph=RichParagraph(runs=[RichRun(text="пункт списка")], list_level=0)),
-    ])
-    cb = ContentBlocks(index="Б1.О.01", blocks={"competencies": block})
-    out = tmp_path / "out_table.docx"
+    cb = ContentBlocks(blocks={"thematic_plan": ContentBlock(
+        key="thematic_plan", title="ТП",
+        elements=[ContentElement(kind=ElementKind.TABLE, table=table)])})
+    out = tmp_path / "out_them.docx"
     generator.generate(settings.rpd_template, out, subject, cb, DocType.RPD)
-    assert out.exists()
     xml = zipfile.ZipFile(out).read("word/document.xml").decode("utf-8", "replace")
-    assert "Наименование" in xml and "пункт списка" in xml
+    assert "Тема-АБВ" in xml
+    assert '<w:highlight w:val="yellow"' in xml
 
 
 def test_generate_fos(

@@ -84,6 +84,16 @@ def test_template_no_editorial_text(template_path: Path) -> None:
     assert leftover == [], f"в шаблоне остались редакторские подписи: {leftover}"
 
 
-def test_rpd_template_has_competence_codes_tag() -> None:
-    tpl = DocxTemplate(str(settings.rpd_template))
-    assert "competence_codes" in tpl.get_undeclared_template_variables()
+def test_rpd_template_has_expected_tags() -> None:
+    tags = DocxTemplate(str(settings.rpd_template)).get_undeclared_template_variables()
+    for tag in ("competence_parents", "competencies", "indicators", "thematic_plan", "hours_self_study"):
+        assert tag in tags, f"в шаблоне РПД нет тега {tag}"
+
+
+def test_rpd_template_has_yellow_highlight_tags() -> None:
+    # Теги-значения (часы, титул, §8) размечены жёлтым → рендеренные значения
+    # будут подсвечены.
+    import zipfile
+
+    xml = zipfile.ZipFile(settings.rpd_template).read("word/document.xml").decode("utf-8", "replace")
+    assert '<w:highlight w:val="yellow"' in xml

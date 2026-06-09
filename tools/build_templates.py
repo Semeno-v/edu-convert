@@ -46,6 +46,27 @@ def clear(paragraph: Paragraph) -> None:
     set_text(paragraph, "")
 
 
+def hl_run(run) -> None:
+    """Жёлтая заливка шрифта на run (рендеренное значение тега будет жёлтым)."""
+    from docx.enum.text import WD_COLOR_INDEX
+
+    run.font.highlight_color = WD_COLOR_INDEX.YELLOW
+
+
+def set_value_tag(paragraph: Paragraph, tag: str) -> None:
+    """Абзац = только тег значения, жёлтый (рендеренное значение подсветится)."""
+    set_text(paragraph, tag)
+    hl_run(paragraph.runs[0])
+
+
+def set_label_value(paragraph: Paragraph, label: str, tag: str) -> None:
+    """Абзац = метка (без подсветки) + тег значения (жёлтый)."""
+    for run in list(paragraph.runs):
+        run._element.getparent().remove(run._element)
+    paragraph.add_run(label)
+    hl_run(paragraph.add_run(tag))
+
+
 def insert_after(paragraph: Paragraph, text: str) -> Paragraph:
     new_p = OxmlElement("w:p")
     paragraph._p.addnext(new_p)
@@ -70,23 +91,21 @@ def tag_rpd(src: Path, dst: Path) -> None:
         if not t:
             continue
         if "код и наименование дисциплины" in t and p.text.strip().isupper():
-            set_text(p, "{{ index }} {{ name }}")
+            set_value_tag(p, "{{ index }} {{ name }}")
         elif t.startswith("по направлению подготовки"):
-            set_text(p, "по направлению подготовки {{ direction }}")
+            set_label_value(p, "по направлению подготовки ", "{{ direction }}")
         elif t.startswith("направленности"):
-            set_text(p, "направленности (профиля) {{ profile }}")
+            set_label_value(p, "направленности (профиля) ", "{{ profile }}")
         elif t.startswith("форма обучения"):
-            set_text(p, "форма обучения {{ form_study }}")
+            set_label_value(p, "форма обучения ", "{{ form_study }}")
         elif "цели в исходной программе нет" in t:
-            set_text(p, "{{ goals }}")
+            clear(p)  # целей в исходных РПД нет — раздел заполняется вручную
         elif "из п. 2 исходной рпд (столбцы 2,3)" in t:
             set_text(p, "{{ competencies }}")
         elif "из п. 2 исходной рпд (столбец 4)" in t:
-            clear(p)
+            set_text(p, "{{ indicators }}")
         elif "из исходной рпд п.3" in t:
-            # Тематический план заполняется автором по официальной структуре
-            # (надёжного источника в старых РПД нет) — убираем редакторскую подпись.
-            clear(p)
+            set_text(p, "{{ thematic_plan }}")  # тематический план из старого документа (best-effort)
         elif "указать основную литературу" in t:
             set_text(p, "{{ literature_main }}")
         elif "указать дополнительную литературу" in t:
@@ -96,7 +115,7 @@ def tag_rpd(src: Path, dst: Path) -> None:
         elif "берем из учебного плана" in t:
             clear(p)
         elif t.startswith("заседания кафедры"):
-            set_text(p, "заседания кафедры {{ department_name }}")
+            set_label_value(p, "заседания кафедры ", "{{ department_name }}")
         elif "методов в экономике и управлении" in t:
             clear(p)  # хвост захардкоженного названия кафедры
         elif t.startswith("опк-1"):  # примеры компетенций/индикаторов
@@ -128,21 +147,26 @@ def _clean_editorial(doc: Document) -> None:
         if "проверка итого" in t or "исходная рпд п. п. 8" in t or "столбцы 2 и 5" in t:
             clear(p)
 
+    grades = {"отлично", "хорошо", "удовлетворительно", "неудовлетворительно"}
     for table in doc.tables:
         header = n(" ".join(c.text for c in table.rows[0].cells))
         if "формируемая компетенция" in header:  # §8 «Система оценивания»
             for row in table.rows:
-                for cell in row.cells:
-                    ct = n(cell.text)
-                    if "коды компетенци" in ct:
-                        set_text(cell.paragraphs[0], "{{ competence_codes }}")
-                        for extra in cell.paragraphs[1:]:
-                            clear(extra)
-                    else:
-                        for p in cell.paragraphs:
-                            for run in list(p.runs):
-                                if "перечислить" in n(run.text):
-                                    run._element.getparent().remove(run._element)
+                if n(row.cells[0].text) not in grades:
+                    continue  # пропускаем строку-шапку
+                # c1 = «Формируемая компетенция» → родительские коды (жёлтые)
+                if len(row.cells) > 1:
+                    set_value_tag(row.cells[1].paragraphs[0], "{{ competence_parents }}")
+                    for extra in row.cells[1].paragraphs[1:]:
+                        clear(extra)
+                # c2 = «Наименование результатов» → подсветить, убрать «(перечислить)»
+                if len(row.cells) > 2:
+                    for p in row.cells[2].paragraphs:
+                        for run in list(p.runs):
+                            if "перечислить" in n(run.text):
+                                run._element.getparent().remove(run._element)
+                            elif run.text.strip():
+                                hl_run(run)
         else:  # §3 «Тематический план» и прочие
             for row in table.rows:
                 for cell in row.cells:
@@ -163,7 +187,7 @@ def _tag_hours_table(doc: Document) -> None:
         "лабораторные занятия": "{{ hours_lab }}",
         "проектное обучение": "{{ hours_project }}",
         "часы внеаудиторной работы": "{{ hours_extra_contact }}",
-        "часы самостоятельной работы": "{{ hours_srs }}",
+        "часы самостоятельной работы": "{{ hours_self_study }}",
         "вид промежуточной аттестации": "{{ control_summary }}",
     }
     for table in doc.tables:
@@ -176,11 +200,12 @@ def _tag_hours_table(doc: Document) -> None:
             tag = next((v for k, v in row_tags.items() if k in label), None)
             if tag is None:
                 continue
-            # колонка «Всего» = индекс 2; «в семестре» = 3 (для односеместровых равны)
+            # колонка «Всего» = индекс 2; «в семестре» = 3 (для односеместровых равны).
+            # Значения подсвечиваются жёлтым (всё, что заполнено из Базы).
             if len(row.cells) > 2:
-                set_text(row.cells[2].paragraphs[0], tag)
+                set_value_tag(row.cells[2].paragraphs[0], tag)
             if len(row.cells) > 3 and "{{ control" not in tag:
-                set_text(row.cells[3].paragraphs[0], tag)
+                set_value_tag(row.cells[3].paragraphs[0], tag)
         break
 
 
@@ -196,13 +221,13 @@ def tag_fos(src: Path, dst: Path) -> None:
         if not t:
             continue
         if t == "код наименование":
-            set_text(p, "{{ index }} {{ name }}")
+            set_value_tag(p, "{{ index }} {{ name }}")
         elif t.startswith("по направлению подготовки"):
-            set_text(p, "по направлению подготовки {{ direction }}")
+            set_label_value(p, "по направлению подготовки ", "{{ direction }}")
         elif t.startswith("направленности"):
-            set_text(p, "направленности (профиля) {{ profile }}")
+            set_label_value(p, "направленности (профиля) ", "{{ profile }}")
         elif t.startswith("форма обучения"):
-            set_text(p, "форма обучения {{ form_study }}")
+            set_label_value(p, "форма обучения ", "{{ form_study }}")
         elif "примерный перечень задач" in t:
             set_text(p, "{{ current_control }}")
         elif "примерный состав тестовых вопросов" in t:
@@ -212,7 +237,7 @@ def tag_fos(src: Path, dst: Path) -> None:
         elif "обязательно с ответами" in t:
             clear(p)
         elif t.startswith("заседания кафедры"):
-            set_text(p, "заседания кафедры {{ department_name }}")
+            set_label_value(p, "заседания кафедры ", "{{ department_name }}")
         elif "методов в экономике и управлении" in t:
             clear(p)  # хвост захардкоженного названия кафедры
         elif "государственной итоговой" in t:
@@ -228,8 +253,9 @@ def tag_fos(src: Path, dst: Path) -> None:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="Разметка шаблонов 2026 тегами docxtpl")
-    ap.add_argument("--rpd-src", default=str(PROJECT_ROOT / "Шаблон РП (2026) ММЭУ.docx"))
-    ap.add_argument("--fos-src", default=str(PROJECT_ROOT / "ФОС_ШАБЛОН (2026) ММЭУ.docx"))
+    _src_dir = PROJECT_ROOT / "files" if (PROJECT_ROOT / "files").is_dir() else PROJECT_ROOT
+    ap.add_argument("--rpd-src", default=str(_src_dir / "Шаблон РП (2026) ММЭУ.docx"))
+    ap.add_argument("--fos-src", default=str(_src_dir / "ФОС_ШАБЛОН (2026) ММЭУ.docx"))
     args = ap.parse_args()
 
     tag_rpd(Path(args.rpd_src), TEMPLATES_DIR / "rpd_2026_tagged.docx")

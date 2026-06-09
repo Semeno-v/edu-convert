@@ -16,18 +16,24 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import polars as pl
 
 from app.core.exceptions import ExcelParseError, SubjectNotFoundError
 from app.core.models import (
+    CompetencyGroup,
+    CompetencyIndicator,
     ControlForm,
     ControlKind,
     SemesterHours,
     SubjectData,
 )
 from app.core.normalizer import as_int, normalize_index, normalize_text, to_float
+
+# Код компетенции/индикатора: УК-1, ПК-2, ОПК-1, УК-1-И-1, ПК-2-И-3 …
+_CODE_RE = re.compile(r"^[А-ЯЁ]{2,5}-\d+(?:-И-\d+)?$")
 
 
 def _cell_to_str(value: object) -> str:
@@ -57,11 +63,58 @@ def _read_grid(path: Path, sheet: str) -> list[list[str]]:
 class ExcelSubjectRepository:
     """Репозиторий дисциплин поверх листа «План» учебного плана."""
 
-    def __init__(self, path: str | Path, sheet: str = "План") -> None:
+    def __init__(
+        self, path: str | Path, sheet: str = "План", competencies_sheet: str = "Компетенции"
+    ) -> None:
         self.path = Path(path)
         self.sheet = sheet
+        self.competencies_sheet = competencies_sheet
+        self._comp_text: dict[str, str] = {}
         self._subjects: dict[str, SubjectData] = {}
+        self._load_competency_texts()
         self._load()
+
+    # ------------------------------------------------------------------ #
+    #  Лист «Компетенции»: код → текст (для §2)
+    # ------------------------------------------------------------------ #
+    def _load_competency_texts(self) -> None:
+        try:
+            grid = _read_grid(self.path, self.competencies_sheet)
+        except ExcelParseError:
+            return
+        content_col = next(
+            (c for row in grid[:5] for c, v in enumerate(row) if normalize_text(v) == "содержание"),
+            4,
+        )
+        for row in grid:
+            code = next(
+                (row[c].strip() for c in range(min(content_col, len(row))) if _CODE_RE.match(row[c].strip())),
+                None,
+            )
+            if code and code not in self._comp_text:
+                self._comp_text[code] = row[content_col].strip() if content_col < len(row) else ""
+
+    def _build_competencies(self, codes: tuple[str, ...]) -> tuple[CompetencyGroup, ...]:
+        """Группирует индикаторы по родительским компетенциям с текстами из Базы."""
+        groups: dict[str, list[str]] = {}
+        order: list[str] = []
+        for code in codes:
+            parent = code.split("-И-")[0]
+            if parent not in groups:
+                groups[parent] = []
+                order.append(parent)
+            groups[parent].append(code)
+        return tuple(
+            CompetencyGroup(
+                code=parent,
+                text=self._comp_text.get(parent, ""),
+                indicators=tuple(
+                    CompetencyIndicator(code=ic, text=self._comp_text.get(ic, ""))
+                    for ic in groups[parent]
+                ),
+            )
+            for parent in order
+        )
 
     # ------------------------------------------------------------------ #
     #  Публичный интерфейс (SubjectRepository)
@@ -254,6 +307,7 @@ class ExcelSubjectRepository:
             department=cell(cols.get("dep_code")) or None,
             department_name=cell(cols.get("dep_name")) or None,
             competence_codes=competence_codes,
+            competencies=self._build_competencies(competence_codes),
         )
 
     @staticmethod

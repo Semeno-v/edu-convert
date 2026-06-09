@@ -1,19 +1,27 @@
 """Генерация целевого документа из шаблона docxtpl (ТЗ §4 Этап 2.6).
 
-Контекст рендера собирается строго из Pydantic-моделей:
+Соответствует одобренному эталонному формату:
 
-* **числа** — из :class:`SubjectData` (источник истины, Excel);
-* **текст** — из :class:`ContentBlocks` (старый Word), причём каждый смысловой
-  блок превращается в *subdoc* (вложенный документ) для сохранения структуры —
-  списков, жирного шрифта, таблиц.
+* **Всё заполненное конвертацией выделяется жёлтым** (заливка шрифта). Статичные
+  разделы шаблона (заголовки, §5/§6/§7) остаются без заливки.
+* **§2** — компетенции и индикаторы строятся из Базы (лист «Компетенции»,
+  :attr:`SubjectData.competencies`) как текстовые абзацы.
+* **§3** — числа из Базы (подсветка задаётся в шаблоне на тегах), тематический
+  план — из старого документа (best-effort).
+* **§4** — литература переформатируется из таблицы старого документа в
+  нумерованный список «Автор. Название. Выходные данные. URL».
+* **§8** — «Формируемая компетенция» = родительские коды (ПК-1, ПК-2).
 
-Реализация :class:`~app.core.interfaces.DocumentGenerator`.
+Подсветка скалярных значений (титул, часы, коды) задаётся в самом шаблоне
+(жёлтый highlight на run-тегах), подсветка subdoc-контента — здесь.
 """
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
+from docx.enum.text import WD_COLOR_INDEX
 from docxtpl import DocxTemplate
 
 from app.config import settings
@@ -24,24 +32,11 @@ from app.core.models import (
     DocType,
     ElementKind,
     RichParagraph,
+    RichTable,
     SubjectData,
 )
 
-# Какие блоки контента вставляются в каждый тип документа (ключ блока → имя тега).
-# Стандартные пред-заполненные разделы шаблона (ЭБС, ПО, помещения) НЕ трогаем
-# (решение пользователя), поэтому здесь только размечаемые теги.
-_RPD_BLOCK_TAGS = {
-    "goals": "goals",
-    "competencies": "competencies",
-    "literature_main": "literature_main",
-    "literature_extra": "literature_extra",
-    "internet_resources": "internet_resources",
-}
-_FOS_BLOCK_TAGS = {
-    "current_control": "current_control",
-    "interim_attestation": "interim_attestation",
-    "gia": "gia",
-}
+_PLACEHOLDER = "Не предусмотрено."
 
 
 class DocxtplGenerator:
@@ -64,7 +59,6 @@ class DocxtplGenerator:
 
     @staticmethod
     def _scan_tags(template_path: Path) -> set[str]:
-        import re
         import zipfile
 
         with zipfile.ZipFile(template_path) as zf:
@@ -97,7 +91,7 @@ class DocxtplGenerator:
         content: ContentBlocks,
         doc_type: DocType,
     ) -> dict[str, object]:
-        # --- Числа (источник истины — Excel) --- #
+        # Скалярные значения; их жёлтая подсветка задаётся в шаблоне на тегах.
         context: dict[str, object] = {
             "index": subject.index,
             "name": subject.name,
@@ -107,47 +101,104 @@ class DocxtplGenerator:
             "hours_aud": subject.hours_aud,
             "hours_lectures": subject.hours_lectures,
             "hours_practical": subject.hours_practical,
-            "hours_lab": subject.hours_lab,
+            "hours_lab": subject.hours_lab or "-",
             "hours_project": subject.hours_project,
-            "hours_srs": subject.hours_srs,
-            "hours_control": subject.hours_control,
-            # консультации / иная контактная работа = контактная − аудиторная
             "hours_extra_contact": max(subject.hours_contact - subject.hours_aud, 0),
+            # «Часы самостоятельной работы» в форме = СРС + контроль (как в эталоне).
+            "hours_self_study": subject.hours_srs + subject.hours_control,
             "control_summary": subject.control_summary,
             "semesters": ", ".join(str(s) for s in subject.semesters),
             "department": subject.department or "",
             "department_name": subject.department_name or "",
-            # Коды компетенций из Базы — для §8 «Система оценивания».
-            "competence_codes": "; ".join(subject.competence_codes),
-            # --- Метаданные титула (текст из старого документа) --- #
+            # §8 — родительские коды компетенций (ПК-1, ПК-2).
+            "competence_parents": ", ".join(subject.competence_parents),
+            # Титул — из старого документа (с подсветкой в шаблоне).
             "direction": content.direction or "",
             "profile": content.profile or "",
             "form_study": content.form_study or "очная",
-            "per_semester": subject.per_semester,
         }
 
-        # --- Текстовые блоки (subdoc) --- #
-        tag_map = _RPD_BLOCK_TAGS if doc_type == DocType.RPD else _FOS_BLOCK_TAGS
-        for block_key, tag in tag_map.items():
-            block = content.get(block_key)
-            context[tag] = self._block_to_subdoc(tpl, block)
+        if doc_type == DocType.RPD:
+            context["competencies"] = self._competencies_subdoc(tpl, subject)
+            context["indicators"] = self._indicators_subdoc(tpl, subject)
+            context["thematic_plan"] = self._block_to_subdoc(
+                tpl, content.get("thematic_plan"), empty_text=""
+            )
+            context["literature_main"] = self._literature_subdoc(tpl, content.get("literature_main"))
+            context["literature_extra"] = self._literature_subdoc(tpl, content.get("literature_extra"))
+            context["internet_resources"] = self._block_to_subdoc(
+                tpl, content.get("internet_resources")
+            )
+        else:
+            for key in ("current_control", "interim_attestation", "gia"):
+                context[key] = self._block_to_subdoc(tpl, content.get(key))
         return context
 
-    def _block_to_subdoc(self, tpl: DocxTemplate, block: ContentBlock | None):
-        """Строит subdoc из IR блока (пустой, если блока нет)."""
+    # ------------------------------------------------------------------ #
+    #  §2 — компетенции и индикаторы из Базы (текстовые абзацы, жёлтые)
+    # ------------------------------------------------------------------ #
+    def _competencies_subdoc(self, tpl: DocxTemplate, subject: SubjectData):
+        sd = tpl.new_subdoc()
+        if not subject.competencies:
+            self._add_text(sd, _PLACEHOLDER, highlight=True)
+            return sd
+        for group in subject.competencies:
+            self._add_text(sd, f"{group.code} - {group.text}".strip(" -"), highlight=True)
+        return sd
+
+    def _indicators_subdoc(self, tpl: DocxTemplate, subject: SubjectData):
+        sd = tpl.new_subdoc()
+        indicators = [ind for g in subject.competencies for ind in g.indicators]
+        if not indicators:
+            self._add_text(sd, _PLACEHOLDER, highlight=True)
+            return sd
+        for ind in indicators:
+            self._add_text(sd, f"{ind.code}. {ind.text}".strip(), highlight=True)
+        return sd
+
+    # ------------------------------------------------------------------ #
+    #  §4 — литература: таблица старого документа → нумерованный список
+    # ------------------------------------------------------------------ #
+    def _literature_subdoc(self, tpl: DocxTemplate, block: ContentBlock | None):
+        sd = tpl.new_subdoc()
+        citations = _table_to_citations(block)
+        if not citations:
+            self._add_text(sd, _PLACEHOLDER, highlight=True)
+            return sd
+        for i, cite in enumerate(citations, 1):
+            self._add_text(sd, f"{i}. {cite}", highlight=True)
+        return sd
+
+    # ------------------------------------------------------------------ #
+    #  Общие subdoc-блоки (контент из старого документа, жёлтый)
+    # ------------------------------------------------------------------ #
+    def _block_to_subdoc(
+        self, tpl: DocxTemplate, block: ContentBlock | None, empty_text: str = _PLACEHOLDER
+    ):
         sd = tpl.new_subdoc()
         if block is None or block.is_empty:
-            sd.add_paragraph("Не предусмотрено программой / нет данных в исходном файле.")
+            self._add_text(sd, empty_text, highlight=bool(empty_text))
             return sd
         for element in block.elements:
             if element.kind == ElementKind.PARAGRAPH and element.paragraph is not None:
-                self._add_paragraph(sd, element.paragraph)
+                self._add_paragraph(sd, element.paragraph, highlight=True)
             elif element.kind == ElementKind.TABLE and element.table is not None:
-                self._add_table(sd, element.table)
+                self._add_table(sd, element.table, highlight=True)
         return sd
 
+    # ------------------------------------------------------------------ #
+    #  Низкоуровневая вставка с подсветкой
+    # ------------------------------------------------------------------ #
     @staticmethod
-    def _add_paragraph(sd, rich: RichParagraph) -> None:
+    def _hl(run, highlight: bool) -> None:
+        if highlight:
+            run.font.highlight_color = WD_COLOR_INDEX.YELLOW
+
+    def _add_text(self, sd, text: str, *, highlight: bool) -> None:
+        run = sd.add_paragraph().add_run(text)
+        self._hl(run, highlight)
+
+    def _add_paragraph(self, sd, rich: RichParagraph, *, highlight: bool) -> None:
         style = "List Bullet" if rich.list_level is not None else None
         try:
             paragraph = sd.add_paragraph(style=style) if style else sd.add_paragraph()
@@ -155,11 +206,10 @@ class DocxtplGenerator:
             paragraph = sd.add_paragraph()
         for run in rich.runs:
             r = paragraph.add_run(run.text)
-            r.bold = run.bold
-            r.italic = run.italic
-            r.underline = run.underline
+            r.bold, r.italic, r.underline = run.bold, run.italic, run.underline
+            self._hl(r, highlight)
 
-    def _add_table(self, sd, rich) -> None:
+    def _add_table(self, sd, rich: RichTable, *, highlight: bool) -> None:
         if not rich.rows:
             return
         ncols = max((len(row.cells) for row in rich.rows), default=0)
@@ -168,7 +218,7 @@ class DocxtplGenerator:
         table = sd.add_table(rows=len(rich.rows), cols=ncols)
         try:
             table.style = "Table Grid"
-        except KeyError:  # стиль отсутствует в базовом шаблоне subdoc
+        except KeyError:
             pass
         for ri, row in enumerate(rich.rows):
             for ci, cell in enumerate(row.cells):
@@ -180,8 +230,39 @@ class DocxtplGenerator:
                     p = tc.paragraphs[0] if pi == 0 else tc.add_paragraph()
                     for run in para.runs:
                         r = p.add_run(run.text)
-                        r.bold = run.bold
-                        r.italic = run.italic
+                        r.bold, r.italic = run.bold, run.italic
+                        self._hl(r, highlight)
+
+
+def _cell_text(cell) -> str:
+    return " ".join(p.text for p in cell.paragraphs).strip()
+
+
+def _table_to_citations(block: ContentBlock | None) -> list[str]:
+    """Переформатирует таблицу литературы в список «Автор. Название. Изд. URL»."""
+    if block is None:
+        return []
+    table = next((e.table for e in block.elements if e.table is not None), None)
+    if table is None or len(table.rows) < 2:
+        return []
+    header = [_cell_text(c).lower() for c in table.rows[0].cells]
+
+    def col(*keywords: str) -> int | None:
+        return next((i for i, h in enumerate(header) if any(k in h for k in keywords)), None)
+
+    ca, ct, co, cu = col("автор"), col("наименован", "назван"), col("выходн", "издат", "год"), col("url", "адрес", "ссылк", "доступ")
+    citations: list[str] = []
+    for row in table.rows[1:]:
+        cells = [_cell_text(c) for c in row.cells]
+
+        def g(i: int | None, _cells: list[str] = cells) -> str:
+            return _cells[i].strip() if i is not None and i < len(_cells) else ""
+
+        parts = [p for p in (g(ca), g(ct), g(co), g(cu)) if p]
+        if g(ca) or g(ct):
+            cite = re.sub(r"\.\s*\.", ".", ". ".join(parts))  # убираем двойные точки
+            citations.append(cite)
+    return citations
 
 
 def _num(value: float) -> str | int:

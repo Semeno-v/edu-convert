@@ -53,6 +53,21 @@ class SemesterHours(BaseModel):
     control: int = 0
 
 
+class CompetencyIndicator(BaseModel):
+    """Индикатор достижения компетенции (код + текст из Базы)."""
+
+    code: str
+    text: str = ""
+
+
+class CompetencyGroup(BaseModel):
+    """Компетенция с её индикаторами (код + текст из листа «Компетенции» Базы)."""
+
+    code: str
+    text: str = ""
+    indicators: tuple[CompetencyIndicator, ...] = ()
+
+
 class SubjectData(BaseModel):
     """Эталонные данные дисциплины из Базы. **Все числа берутся отсюда.**"""
 
@@ -77,6 +92,17 @@ class SubjectData(BaseModel):
     department: str | None = None
     department_name: str | None = None
     competence_codes: tuple[str, ...] = ()
+    competencies: tuple[CompetencyGroup, ...] = ()
+
+    @property
+    def competence_parents(self) -> tuple[str, ...]:
+        """Родительские коды компетенций (ПК-1, ПК-2…) — для §8."""
+        seen: list[str] = []
+        for code in self.competence_codes:
+            parent = code.split("-И-")[0]
+            if parent not in seen:
+                seen.append(parent)
+        return tuple(seen)
 
     @property
     def semesters(self) -> tuple[int, ...]:
