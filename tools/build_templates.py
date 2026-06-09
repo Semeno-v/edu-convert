@@ -84,7 +84,9 @@ def tag_rpd(src: Path, dst: Path) -> None:
         elif "из п. 2 исходной рпд (столбец 4)" in t:
             clear(p)
         elif "из исходной рпд п.3" in t:
-            set_text(p, "{{ thematic_plan }}")
+            # Тематический план заполняется автором по официальной структуре
+            # (надёжного источника в старых РПД нет) — убираем редакторскую подпись.
+            clear(p)
         elif "указать основную литературу" in t:
             set_text(p, "{{ literature_main }}")
         elif "указать дополнительную литературу" in t:
@@ -99,9 +101,50 @@ def tag_rpd(src: Path, dst: Path) -> None:
     # --- Таблица часов: значения из Excel --- #
     _tag_hours_table(doc)
 
+    # --- Остальные редакторские пометки (§3 тематический план, §8 оценивание) --- #
+    _clean_editorial(doc)
+
     dst.parent.mkdir(parents=True, exist_ok=True)
     doc.save(str(dst))
     print(f"[РПД] {src.name} → {dst}")
+
+
+def _clean_editorial(doc: Document) -> None:
+    """Убирает/заполняет оставшиеся редакторские пометки в РПД.
+
+    * §3: убирает инструкции «Указать несколько тем…» и «Проверка итого…»
+      (тематический план заполняется автором по официальной пустой таблице);
+    * §8: примечание «Исходная РПД п.п.8…» убирается, ячейки «Код/коды
+      компетенций» → тег ``{{ competence_codes }}`` (из Базы), инструкции
+      «(перечислить)» удаляются.
+    """
+    # Верхнеуровневые красные примечания.
+    for p in doc.paragraphs:
+        t = n(p.text)
+        if "проверка итого" in t or "исходная рпд п. п. 8" in t or "столбцы 2 и 5" in t:
+            clear(p)
+
+    for table in doc.tables:
+        header = n(" ".join(c.text for c in table.rows[0].cells))
+        if "формируемая компетенция" in header:  # §8 «Система оценивания»
+            for row in table.rows:
+                for cell in row.cells:
+                    ct = n(cell.text)
+                    if "коды компетенци" in ct:
+                        set_text(cell.paragraphs[0], "{{ competence_codes }}")
+                        for extra in cell.paragraphs[1:]:
+                            clear(extra)
+                    else:
+                        for p in cell.paragraphs:
+                            for run in list(p.runs):
+                                if "перечислить" in n(run.text):
+                                    run._element.getparent().remove(run._element)
+        else:  # §3 «Тематический план» и прочие
+            for row in table.rows:
+                for cell in row.cells:
+                    if "указать несколько тем" in n(cell.text):
+                        for p in cell.paragraphs:
+                            clear(p)
 
 
 def _tag_hours_table(doc: Document) -> None:

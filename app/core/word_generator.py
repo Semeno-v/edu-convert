@@ -33,7 +33,6 @@ from app.core.models import (
 _RPD_BLOCK_TAGS = {
     "goals": "goals",
     "competencies": "competencies",
-    "thematic_plan": "thematic_plan",
     "literature_main": "literature_main",
     "literature_extra": "literature_extra",
     "internet_resources": "internet_resources",
@@ -117,6 +116,8 @@ class DocxtplGenerator:
             "control_summary": subject.control_summary,
             "semesters": ", ".join(str(s) for s in subject.semesters),
             "department": subject.department or "",
+            # Коды компетенций из Базы — для §8 «Система оценивания».
+            "competence_codes": "; ".join(subject.competence_codes),
             # --- Метаданные титула (текст из старого документа) --- #
             "direction": content.direction or "",
             "profile": content.profile or "",
