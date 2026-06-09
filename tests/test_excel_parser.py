@@ -31,6 +31,8 @@ def test_subject_single_semester(plan_xlsx: Path) -> None:
     assert s.control_forms[0].semester == 1
     assert s.semesters == (1,)
     assert s.competence_codes == ("УК-1-И-1", "ПК-2-И-1")
+    assert s.department == "01"
+    assert s.department_name == "Тестовая кафедра"
 
 
 def test_subject_second_semester_block(plan_xlsx: Path) -> None:

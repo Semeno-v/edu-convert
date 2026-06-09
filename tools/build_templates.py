@@ -95,6 +95,10 @@ def tag_rpd(src: Path, dst: Path) -> None:
             set_text(p, "{{ internet_resources }}")
         elif "берем из учебного плана" in t:
             clear(p)
+        elif t.startswith("заседания кафедры"):
+            set_text(p, "заседания кафедры {{ department_name }}")
+        elif "методов в экономике и управлении" in t:
+            clear(p)  # хвост захардкоженного названия кафедры
         elif t.startswith("опк-1"):  # примеры компетенций/индикаторов
             clear(p)
 
@@ -207,6 +211,10 @@ def tag_fos(src: Path, dst: Path) -> None:
             clear(p)
         elif "обязательно с ответами" in t:
             clear(p)
+        elif t.startswith("заседания кафедры"):
+            set_text(p, "заседания кафедры {{ department_name }}")
+        elif "методов в экономике и управлении" in t:
+            clear(p)  # хвост захардкоженного названия кафедры
         elif "государственной итоговой" in t:
             gia_heading = p
 

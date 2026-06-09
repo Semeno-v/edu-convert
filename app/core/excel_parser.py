@@ -138,6 +138,12 @@ class ExcelSubjectRepository:
             elif n == "компетенции" and "competences" not in cols:
                 cols["competences"] = c
 
+        # Наименование кафедры — колонка сразу после «Код» (заголовок «Наименование»).
+        if "dep_code" in cols:
+            nxt = cols["dep_code"] + 1
+            if nxt < len(header) and normalize_text(header[nxt]) == "наименование":
+                cols["dep_name"] = nxt
+
         if "index" not in cols or "name" not in cols or "ze" not in cols or "total" not in cols:
             raise ExcelParseError(f"Не найдены обязательные колонки. Найдено: {cols}")
         return cols
@@ -246,6 +252,7 @@ class ExcelSubjectRepository:
             control_forms=control_forms,
             per_semester=per_semester,
             department=cell(cols.get("dep_code")) or None,
+            department_name=cell(cols.get("dep_name")) or None,
             competence_codes=competence_codes,
         )
 

@@ -94,13 +94,6 @@ def is_heading(text: str) -> bool:
     return bool(_HEADING_RE.match(stripped))
 
 
-def _slug(text: str) -> str:
-    """Делает ключ из произвольного заголовка (fallback, если правило не нашлось)."""
-    norm = normalize_text(text)
-    norm = re.sub(r"^\d+(?:\.\d+)*\.?\s*", "", norm)
-    return re.sub(r"[^a-zа-я0-9]+", "_", norm).strip("_")[:48] or "block"
-
-
 # --------------------------------------------------------------------------- #
 #  Преобразование python-docx → IR
 # --------------------------------------------------------------------------- #
@@ -281,19 +274,25 @@ class WordExtractor:
         self._fill_title_meta(doc, result)
 
         current: ContentBlock | None = None
-        seen_keys: set[str] = set()
 
         for item in _iter_block_items(doc):
             if isinstance(item, Paragraph):
                 text = item.text.strip()
                 if is_heading(text):
-                    key = _heading_key(text) or _slug(text)
-                    if key in seen_keys:
-                        key = f"{key}_{len(seen_keys)}"
-                    seen_keys.add(key)
-                    current = ContentBlock(key=key, title=text)
-                    result.blocks[key] = current
-                    continue
+                    key = _heading_key(text)
+                    if key is not None:
+                        # Новый блок начинается ТОЛЬКО на распознанном заголовке;
+                        # повторный ключ — продолжаем (merge) тот же блок, чтобы не
+                        # терять контент при дублирующихся/оглавлениях-заголовках.
+                        if key in result.blocks:
+                            current = result.blocks[key]
+                        else:
+                            current = ContentBlock(key=key, title=text)
+                            result.blocks[key] = current
+                        continue
+                    # Нумерованный, но нераспознанный заголовок (например, пункт
+                    # списка «1. Дайте определение…») — это контент текущего блока,
+                    # а не новый раздел: не дробим списки вопросов на части.
                 if current is not None and text:
                     current.elements.append(
                         ContentElement(kind=ElementKind.PARAGRAPH, paragraph=para_to_rich(item))

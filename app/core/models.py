@@ -75,6 +75,7 @@ class SubjectData(BaseModel):
     control_forms: tuple[ControlForm, ...] = ()
     per_semester: tuple[SemesterHours, ...] = ()
     department: str | None = None
+    department_name: str | None = None
     competence_codes: tuple[str, ...] = ()
 
     @property

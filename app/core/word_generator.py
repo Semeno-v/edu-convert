@@ -116,6 +116,7 @@ class DocxtplGenerator:
             "control_summary": subject.control_summary,
             "semesters": ", ".join(str(s) for s in subject.semesters),
             "department": subject.department or "",
+            "department_name": subject.department_name or "",
             # Коды компетенций из Базы — для §8 «Система оценивания».
             "competence_codes": "; ".join(subject.competence_codes),
             # --- Метаданные титула (текст из старого документа) --- #

@@ -19,7 +19,6 @@ from app.core.word_extractor import (
     WordExtractor,
     _heading_key,
     _opt_int,
-    _slug,
     is_heading,
     para_to_rich,
     table_to_rich,
@@ -68,9 +67,6 @@ def test_heading_key(text: str, expected_key: str | None) -> None:
     assert _heading_key(text) == expected_key
 
 
-def test_slug() -> None:
-    assert _slug("4. Учебно-методическое обеспечение") == "учебно_методическое_обеспечение"
-    assert _slug("123. ") == "block"
 
 
 # --------------------------------------------------------------------------- #
@@ -243,7 +239,9 @@ def test_parse_hours_table_without_trudoemkost(extractor: WordExtractor) -> None
     assert extractor._parse_hours_table(t).hours_total is None
 
 
-def test_heading_dedup(extractor: WordExtractor, tmp_path: Path) -> None:
+def test_heading_merge_same_key(extractor: WordExtractor, tmp_path: Path) -> None:
+    # Повторный распознанный заголовок СЛИВАЕТСЯ в тот же блок (а не дублируется),
+    # чтобы не терять контент при дублирующихся/оглавлениях-заголовках.
     doc = Document()
     doc.add_paragraph("6. Программное обеспечение")
     doc.add_paragraph("Первое ПО")
@@ -253,4 +251,20 @@ def test_heading_dedup(extractor: WordExtractor, tmp_path: Path) -> None:
     doc.save(str(path))
     content = extractor.extract(path, DocType.RPD)
     assert "software" in content.blocks
-    assert any(k.startswith("software_") for k in content.blocks)
+    assert not any(k.startswith("software_") for k in content.blocks)
+    texts = [e.paragraph.text for e in content.blocks["software"].elements if e.paragraph]
+    assert "Первое ПО" in texts and "Второе ПО" in texts
+
+
+def test_unrecognized_numbered_heading_is_content(extractor: WordExtractor, tmp_path: Path) -> None:
+    # Нумерованный пункт списка (не раздел) остаётся контентом текущего блока.
+    doc = Document()
+    doc.add_paragraph("6. Программное обеспечение")
+    doc.add_paragraph("1. Какой-то вопрос списка?")
+    doc.add_paragraph("2. Ещё вопрос списка?")
+    path = tmp_path / "list.docx"
+    doc.save(str(path))
+    content = extractor.extract(path, DocType.RPD)
+    texts = [e.paragraph.text for e in content.blocks["software"].elements if e.paragraph]
+    assert "1. Какой-то вопрос списка?" in texts and "2. Ещё вопрос списка?" in texts
+    assert len(content.blocks) == 1  # вопросы не создали новых блоков
