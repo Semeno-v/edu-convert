@@ -149,6 +149,44 @@ def test_extract_empty_doc(extractor: WordExtractor, empty_docx: Path) -> None:
 
 
 # --------------------------------------------------------------------------- #
+#  Раны внутри контейнеров (w:hyperlink, w:smartTag) — paragraph.runs их теряет
+# --------------------------------------------------------------------------- #
+def _wrap_run(container_tag: str, text: str):
+    container = OxmlElement(container_tag)
+    r = OxmlElement("w:r")
+    t = OxmlElement("w:t")
+    t.text = text
+    t.set(qn("xml:space"), "preserve")
+    r.append(t)
+    container.append(r)
+    return container
+
+
+def test_para_to_rich_keeps_hyperlink_text() -> None:
+    doc = Document()
+    p = doc.add_paragraph("URL: ")
+    p._p.append(_wrap_run("w:hyperlink", "https://e.lib/1"))
+    rich = para_to_rich(p)
+    assert rich.text == "URL: https://e.lib/1"
+
+
+def test_para_to_rich_keeps_smarttag_text() -> None:
+    doc = Document()
+    p = doc.add_paragraph("поля: нижнее ")
+    p._p.append(_wrap_run("w:smartTag", "2 см"))
+    rich = para_to_rich(p)
+    assert "2 см" in rich.text
+
+
+def test_para_to_rich_hyperlink_only_paragraph() -> None:
+    doc = Document()
+    p = doc.add_paragraph()
+    p._p.append(_wrap_run("w:hyperlink", "www.sovnet.ru"))
+    rich = para_to_rich(p)
+    assert rich.text == "www.sovnet.ru"
+
+
+# --------------------------------------------------------------------------- #
 #  IR-преобразования напрямую
 # --------------------------------------------------------------------------- #
 def test_para_to_rich_runs(tmp_path: Path) -> None:

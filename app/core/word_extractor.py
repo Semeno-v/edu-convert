@@ -26,6 +26,7 @@ from docx.oxml.table import CT_Tbl
 from docx.oxml.text.paragraph import CT_P
 from docx.table import Table, _Cell
 from docx.text.paragraph import Paragraph
+from docx.text.run import Run
 
 from app.core.exceptions import DocumentParseError
 from app.core.models import (
@@ -128,6 +129,29 @@ def _list_level(paragraph: Paragraph) -> int | None:
     return 0
 
 
+# Контейнеры, внутри которых лежат раны, пропускаемые paragraph.runs:
+# гиперссылки, smartTag (могут быть вложенными), простые поля.
+_RUN_CONTAINER_TAGS = ("w:hyperlink", "w:smartTag", "w:fldSimple", "w:ins")
+
+
+def _iter_runs(paragraph: Paragraph):
+    """Раны абзаца в порядке документа, включая вложенные в w:hyperlink/w:smartTag.
+
+    ``paragraph.runs`` python-docx отдаёт только прямые ``w:r`` — текст ссылок
+    («URL: …») и smartTag-значений («2 см») иначе теряется при переносе.
+    """
+    container_tags = {qn(tag) for tag in _RUN_CONTAINER_TAGS}
+
+    def walk(element):
+        for child in element:
+            if child.tag == qn("w:r"):
+                yield Run(child, paragraph)
+            elif child.tag in container_tags:
+                yield from walk(child)
+
+    yield from walk(paragraph._p)
+
+
 def para_to_rich(paragraph: Paragraph) -> RichParagraph:
     """Преобразует абзац python-docx в :class:`RichParagraph` (с форматированием)."""
     runs = [
@@ -137,7 +161,7 @@ def para_to_rich(paragraph: Paragraph) -> RichParagraph:
             italic=bool(run.italic),
             underline=bool(run.underline),
         )
-        for run in paragraph.runs
+        for run in _iter_runs(paragraph)
         if run.text
     ]
     if not runs and paragraph.text.strip():
