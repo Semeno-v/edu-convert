@@ -24,9 +24,18 @@ from pathlib import Path
 
 from docx import Document
 from docx.oxml import OxmlElement
+from docx.oxml.ns import qn
 from docx.text.paragraph import Paragraph
 
 from app.core.normalizer import normalize_text
+
+
+def strip_red_highlights(doc: Document) -> None:
+    """Удаляет красные highlight-пометки (в т.ч. на знаках абзаца), унаследованные
+    из исходной формы 2026. Жёлтые (наши) не трогаем."""
+    for h in list(doc.element.body.iter(qn("w:highlight"))):
+        if (h.get(qn("w:val")) or "") == "red":
+            h.getparent().remove(h)
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 TEMPLATES_DIR = PROJECT_ROOT / "templates"
@@ -126,6 +135,7 @@ def tag_rpd(src: Path, dst: Path) -> None:
 
     # --- Остальные редакторские пометки (§3 тематический план, §8 оценивание) --- #
     _clean_editorial(doc)
+    strip_red_highlights(doc)
 
     dst.parent.mkdir(parents=True, exist_ok=True)
     doc.save(str(dst))
@@ -246,6 +256,7 @@ def tag_fos(src: Path, dst: Path) -> None:
     if gia_heading is not None:
         insert_after(gia_heading, "{{ gia }}")
 
+    strip_red_highlights(doc)
     dst.parent.mkdir(parents=True, exist_ok=True)
     doc.save(str(dst))
     print(f"[ФОС] {src.name} → {dst}")
