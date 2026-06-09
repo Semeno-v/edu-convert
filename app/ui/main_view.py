@@ -271,15 +271,27 @@ def App() -> ft.Control:
             ),
         ]
 
+    on_primary = ft.Colors.ON_PRIMARY
     header = ft.Container(
-        bgcolor=ft.Colors.PRIMARY_CONTAINER,
-        padding=ft.Padding.symmetric(horizontal=24, vertical=16),
-        content=ft.Column(
-            spacing=2,
+        bgcolor=ft.Colors.PRIMARY,
+        padding=ft.Padding.symmetric(horizontal=28, vertical=18),
+        content=ft.Row(
+            spacing=16,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
             controls=[
-                ft.Text("EduConvert", size=24, weight=ft.FontWeight.BOLD),
-                ft.Text("Конвертация РПД и ФОС в шаблоны 2026 — числа из Базы, текст из исходников",
-                        size=12, color=ft.Colors.ON_SURFACE_VARIANT),
+                ft.Icon(ft.Icons.SWAP_HORIZONTAL_CIRCLE_OUTLINED, size=40, color=on_primary),
+                ft.Column(
+                    spacing=2,
+                    tight=True,
+                    controls=[
+                        ft.Text("EduConvert", size=24, weight=ft.FontWeight.BOLD, color=on_primary),
+                        ft.Text(
+                            "Конвертация РПД и ФОС в шаблоны 2026",
+                            size=13,
+                            color=ft.Colors.with_opacity(0.85, on_primary),
+                        ),
+                    ],
+                ),
             ],
         ),
     )
@@ -289,6 +301,7 @@ def App() -> ft.Control:
     return ft.Column(
         expand=True,
         spacing=0,
+        horizontal_alignment=ft.CrossAxisAlignment.STRETCH,  # шапка во всю ширину
         controls=[
             header,
             ft.Container(
