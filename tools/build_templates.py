@@ -157,26 +157,31 @@ def _clean_editorial(doc: Document) -> None:
         if "проверка итого" in t or "исходная рпд п. п. 8" in t or "столбцы 2 и 5" in t:
             clear(p)
 
-    grades = {"отлично", "хорошо", "удовлетворительно", "неудовлетворительно"}
+    grade_level = {"отлично": "5", "хорошо": "4", "удовлетворительно": "3", "неудовлетворительно": "2"}
     for table in doc.tables:
         header = n(" ".join(c.text for c in table.rows[0].cells))
         if "формируемая компетенция" in header:  # §8 «Система оценивания»
             for row in table.rows:
-                if n(row.cells[0].text) not in grades:
-                    continue  # пропускаем строку-шапку
+                level = grade_level.get(n(row.cells[0].text))
+                if level is None:
+                    continue  # строка-шапка
                 # c1 = «Формируемая компетенция» → родительские коды (жёлтые)
                 if len(row.cells) > 1:
                     set_value_tag(row.cells[1].paragraphs[0], "{{ competence_parents }}")
                     for extra in row.cells[1].paragraphs[1:]:
                         clear(extra)
-                # c2 = «Наименование результатов» → подсветить, убрать «(перечислить)»
+                # c2 = «Наименование результатов»: оставить вводную фразу (подсветить),
+                # убрать «Знает/Умеет/Владеет (перечислить)», добавить тег результатов.
                 if len(row.cells) > 2:
-                    for p in row.cells[2].paragraphs:
-                        for run in list(p.runs):
-                            if "перечислить" in n(run.text):
-                                run._element.getparent().remove(run._element)
-                            elif run.text.strip():
-                                hl_run(run)
+                    cell = row.cells[2]
+                    for p in list(cell.paragraphs):
+                        if "демонстрирует" in n(p.text):
+                            for run in p.runs:
+                                if run.text.strip():
+                                    hl_run(run)
+                        else:  # удаляем «Знает/Умеет/Владеет (перечислить)» без пустых строк
+                            p._element.getparent().remove(p._element)
+                    hl_run(cell.add_paragraph().add_run("{{ outcomes_" + level + " }}"))
         else:  # §3 «Тематический план» и прочие
             for row in table.rows:
                 for cell in row.cells:

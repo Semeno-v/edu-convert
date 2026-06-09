@@ -32,7 +32,19 @@ from app.core.models import (
     RichTableRow,
     SubjectData,
 )
-from app.core.word_generator import DocxtplGenerator, _num
+from app.core.word_generator import DocxtplGenerator, _assessment_outcomes, _num
+
+
+def _assessment_block() -> ContentBlock:
+    def cell(t: str) -> RichTableCell:
+        return RichTableCell(paragraphs=[RichParagraph(runs=[RichRun(text=t)])])
+    rows = [
+        RichTableRow(cells=[cell("Оценка"), cell("Компетенция"), cell("Формулировка требований")]),
+        RichTableRow(cells=[cell("Отлично"), cell("ПК-1"), cell("Знает на высоком уровне X")]),
+        RichTableRow(cells=[cell("Неудовлетворительно"), cell("ПК-1"), cell("Не знает X")]),
+    ]
+    return ContentBlock(key="assessment", title="Оценка качества",
+                        elements=[ContentElement(kind=ElementKind.TABLE, table=RichTable(rows=rows))])
 
 
 @pytest.fixture
@@ -136,6 +148,24 @@ def test_competencies_built_from_base(
     assert "Способен критически мыслить" in xml  # текст компетенции
     assert "Анализирует проблему" in xml          # текст индикатора
     assert "ПК-2" in xml                           # родительский код в §8
+
+
+def test_assessment_outcomes_by_grade() -> None:
+    out = _assessment_outcomes(_assessment_block())
+    assert out["5"] == "Знает на высоком уровне X"   # отлично
+    assert out["2"] == "Не знает X"                  # неудовлетворительно
+
+
+def test_section8_outcomes_filled(
+    generator: DocxtplGenerator, subject: SubjectData, tmp_path: Path
+) -> None:
+    # §8 «Наименование результатов» заполняется из §8 исходной РПД.
+    cb = ContentBlocks(blocks={"assessment": _assessment_block()})
+    out = tmp_path / "out8.docx"
+    generator.generate(settings.rpd_template, out, subject, cb, DocType.RPD)
+    xml = zipfile.ZipFile(out).read("word/document.xml").decode("utf-8", "replace")
+    assert "Знает на высоком уровне X" in xml
+    assert "Не знает X" in xml
 
 
 def test_generate_empty_block_placeholder(

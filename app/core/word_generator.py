@@ -35,6 +35,7 @@ from app.core.models import (
     RichTable,
     SubjectData,
 )
+from app.core.normalizer import normalize_text
 
 _PLACEHOLDER = "Не предусмотрено."
 
@@ -119,6 +120,10 @@ class DocxtplGenerator:
         }
 
         if doc_type == DocType.RPD:
+            # §8: результаты обучения по уровням оценки — из §8 исходной РПД.
+            outcomes = _assessment_outcomes(content.get("assessment"))
+            for level in ("5", "4", "3", "2"):
+                context["outcomes_" + level] = outcomes.get(level, "")
             context["competencies"] = self._competencies_subdoc(tpl, subject)
             context["indicators"] = self._indicators_subdoc(tpl, subject)
             context["thematic_plan"] = self._block_to_subdoc(
@@ -236,6 +241,46 @@ class DocxtplGenerator:
 
 def _cell_text(cell) -> str:
     return " ".join(p.text for p in cell.paragraphs).strip()
+
+
+def _assessment_outcomes(block: ContentBlock | None) -> dict[str, str]:
+    """Извлекает результаты обучения по уровням оценки из таблицы §8 исходной РПД.
+
+    Возвращает словарь уровень→текст (через перевод строки):
+    «5»=отлично, «4»=хорошо, «3»=удовлетворительно, «2»=неудовлетворительно.
+    Для дисциплин с зачётом «Зачтено» раскладывается на 5/4/3, «Не зачтено» → 2.
+    Источник результатов — последняя колонка таблицы («Формулировка требований»).
+    """
+    if block is None:
+        return {}
+    table = next((e.table for e in block.elements if e.table is not None), None)
+    if table is None or len(table.rows) < 2:
+        return {}
+    grades: dict[str, list[str]] = {}
+    for row in table.rows[1:]:
+        if not row.cells:
+            continue
+        grade = _cell_text(row.cells[0])
+        requirement = _cell_text(row.cells[-1])
+        if grade and requirement:
+            grades.setdefault(normalize_text(grade), []).append(requirement)
+
+    out: dict[str, str] = {}
+    for gnorm, reqs in grades.items():
+        joined = "\n".join(dict.fromkeys(reqs))  # уникальные, по порядку
+        if "неуд" in gnorm or "не зачт" in gnorm:
+            out["2"] = joined
+        elif "отл" in gnorm:
+            out["5"] = joined
+        elif "хор" in gnorm:
+            out["4"] = joined
+        elif "удовл" in gnorm:
+            out["3"] = joined
+        elif "зачт" in gnorm:  # зачёт → положительные уровни
+            out.setdefault("5", joined)
+            out.setdefault("4", joined)
+            out.setdefault("3", joined)
+    return out
 
 
 def _table_to_citations(block: ContentBlock | None) -> list[str]:
