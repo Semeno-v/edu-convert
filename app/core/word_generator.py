@@ -601,12 +601,24 @@ def _fill_topics_table(docx, block: ContentBlock | None, subject: SubjectData) -
     ])
 
 
+_NUMERIC_CELL_RE = re.compile(r"[\d\s.,\-–—]+")
+
+
+def _is_numeric_cell(text: str) -> bool:
+    """Числовое содержимое ячейки («4», «1,6», «-») — выравнивается по центру."""
+    text = text.strip()
+    if not text or _NUMERIC_CELL_RE.fullmatch(text) is None:
+        return False
+    return any(ch.isdigit() for ch in text) or text in ("-", "–", "—")
+
+
 def _apply_body_justify(docx) -> None:
     """Выравнивание по ширине для всего тела РПД (требование кафедры).
 
-    Не трогаются: титульный лист (до «Москва, …» включительно), центрированные
-    и выровненные вправо абзацы, шапки таблиц §3 («Вид учебной работы»,
-    «Темы (разделы)» до строки с номерами колонок).
+    Числовые ячейки таблиц — по центру (как в эталонах). Не трогаются:
+    титульный лист (до «Москва, …» включительно), центрированные и выровненные
+    вправо абзацы, шапки таблиц §3 («Вид учебной работы», «Темы (разделы)»
+    до строки с номерами колонок).
     """
     untouched = (None, WD_ALIGN_PARAGRAPH.LEFT)
     body_started = False
@@ -635,7 +647,11 @@ def _apply_body_justify(docx) -> None:
             for cell in row.cells:
                 for p in cell.paragraphs:
                     if p.text.strip() and p.paragraph_format.alignment in untouched:
-                        p.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+                        p.paragraph_format.alignment = (
+                            WD_ALIGN_PARAGRAPH.CENTER
+                            if _is_numeric_cell(p.text)
+                            else WD_ALIGN_PARAGRAPH.JUSTIFY
+                        )
 
 
 def _dot(text: str) -> str:
