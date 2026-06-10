@@ -32,7 +32,11 @@ from app.config import settings
 from app.core.differ import compute_diffs
 from app.core.doc_converter import WordComConverter
 from app.core.excel_parser import ExcelSubjectRepository, load_repository
-from app.core.exceptions import EduConvertError, SubjectNotFoundError
+from app.core.exceptions import (
+    EduConvertError,
+    SubjectNotFoundError,
+    TemplateValidationError,
+)
 from app.core.models import (
     DocType,
     FileResult,
@@ -108,14 +112,13 @@ class Orchestrator:
             if progress is not None:
                 progress(done, total, message)
 
-        notify(0, len(input_files), "Инициализация: загрузка Базы и проверка шаблонов…")
-        await anyio.to_thread.run_sync(self._initialize)
-
         workdir = settings.temp_root / f"run_{uuid.uuid4().hex[:12]}"
         out_dir = workdir / "output"
         out_dir.mkdir(parents=True, exist_ok=True)
 
         try:
+            notify(0, len(input_files), "Инициализация: загрузка Базы и проверка шаблонов…")
+            await anyio.to_thread.run_sync(self._initialize, workdir)
             report = RunReport()
             total = len(input_files)
             for i, path in enumerate(input_files):
@@ -143,11 +146,41 @@ class Orchestrator:
     # ------------------------------------------------------------------ #
     #  Инициализация
     # ------------------------------------------------------------------ #
-    def _initialize(self) -> None:
+    def _initialize(self, workdir: Path | None = None) -> None:
         if self._repo is None:
             self._repo = load_repository(self.db_path, settings.plan_sheet)
-        self.generator.validate_template(self.rpd_template, DocType.RPD)
-        self.generator.validate_template(self.fos_template, DocType.FOS)
+        self.rpd_template = self._ensure_tagged(self.rpd_template, DocType.RPD, workdir)
+        self.fos_template = self._ensure_tagged(self.fos_template, DocType.FOS, workdir)
+
+    def _ensure_tagged(self, path: Path, doc_type: DocType, workdir: Path | None) -> Path:
+        """Возвращает размеченный шаблон; чистую официальную форму размечает на лету.
+
+        Пользователь может выбрать в качестве шаблона саму форму 2026 (без
+        docxtpl-тегов) — тогда она автоматически размечается во временную копию
+        тем же кодом, что собирает поставляемые ``templates/*_tagged.docx``.
+        """
+        try:
+            self.generator.validate_template(path, doc_type)
+            return path
+        except TemplateValidationError as exc:
+            if workdir is None or not _looks_like_official_form(path, doc_type):
+                raise EduConvertError(
+                    f"В шаблоне '{path.name}' нет docxtpl-тегов (не хватает: "
+                    f"{', '.join(exc.missing_tags)}), и на официальную форму 2026 "
+                    f"он не похож. Выберите размеченный шаблон из templates/ "
+                    f"({'rpd' if doc_type == DocType.RPD else 'fos'}_2026_tagged.docx) "
+                    f"или саму форму 2026 — её конвертер разметит автоматически."
+                ) from exc
+            from tools.build_templates import tag_fos, tag_rpd  # noqa: PLC0415 — ленивый импорт
+
+            tagged = workdir / f"autotag_{doc_type.value}_{path.stem}.docx"
+            (tag_rpd if doc_type == DocType.RPD else tag_fos)(path, tagged)
+            self.generator.validate_template(tagged, doc_type)
+            logger.info(
+                "Шаблон '%s' без тегов — выполнена авторазметка официальной формы 2026",
+                path.name,
+            )
+            return tagged
 
     @property
     def repository(self) -> ExcelSubjectRepository:
@@ -268,6 +301,23 @@ class Orchestrator:
                 if file.is_file() and "_converted" not in file.parts:
                     zf.write(file, file.relative_to(out_dir))
         return zip_path
+
+
+def _looks_like_official_form(path: Path, doc_type: DocType) -> bool:
+    """Похож ли файл на чистую официальную форму 2026 (кандидат на авторазметку)."""
+    try:
+        from docx import Document  # noqa: PLC0415 — только для этой проверки
+
+        doc = Document(str(path))
+    except Exception:  # noqa: BLE001 — не docx/битый файл — не форма
+        return False
+    text = normalize_text(" ".join(p.text for p in doc.paragraphs))
+    if doc_type == DocType.RPD:
+        tables = normalize_text(
+            " ".join(c.text for t in doc.tables for r in t.rows[:2] for c in r.cells)
+        )
+        return "цели освоения дисциплины" in text and "вид учебной работы" in tables
+    return "примерный перечень задач" in text or "примерный состав тестовых вопросов" in text
 
 
 def _detect_doc_type(path: Path) -> DocType:

@@ -70,6 +70,32 @@ def test_orchestrator_end_to_end(plan_xlsx: Path, rpd_docx: Path, tmp_path: Path
     assert not zip_path.exists()
 
 
+def test_auto_tags_official_form(plan_xlsx: Path, rpd_docx: Path) -> None:
+    # Пользователь выбирает чистую официальную форму 2026 вместо размеченного
+    # шаблона — конвертер размечает её на лету и прогон проходит.
+    import pytest
+
+    form = Path(__file__).resolve().parents[1] / "files" / "Шаблон РП (2026) ММЭУ.docx"
+    if not form.exists():
+        pytest.skip("официальная форма 2026 недоступна (files/ вне репозитория)")
+    orch = Orchestrator(plan_xlsx, rpd_template=form)
+    result = anyio.run(orch.run, [rpd_docx])
+    assert result.report.failed == 0
+    assert result.report.total == 1
+    result.cleanup()
+
+
+def test_template_without_tags_clear_error(plan_xlsx: Path, rpd_docx: Path, empty_docx: Path) -> None:
+    # Файл без тегов и не похожий на форму — понятная ошибка с подсказкой.
+    import pytest
+
+    from app.core.exceptions import EduConvertError
+
+    orch = Orchestrator(plan_xlsx, rpd_template=empty_docx)
+    with pytest.raises(EduConvertError, match="нет docxtpl-тегов"):
+        anyio.run(orch.run, [rpd_docx])
+
+
 def test_orchestrator_failure_cleans_workdir(
     plan_xlsx: Path, rpd_docx: Path, monkeypatch, tmp_path: Path
 ) -> None:
