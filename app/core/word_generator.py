@@ -242,9 +242,12 @@ class DocxtplGenerator:
         # стиль списка не назначаем, чтобы не получить двойной маркер.
         paragraph = sd.add_paragraph()
         if body_format and rich.alignment != "center":
-            # Эталонный формат тела (центрированные подзаголовки сохраняются).
+            # Эталонный формат тела (центрированные подзаголовки сохраняются):
+            # по ширине, красная строка 1 см, без интервала после абзаца —
+            # иначе Normal шаблона добавляет 8pt на каждый абзац (+страница).
             paragraph.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
             paragraph.paragraph_format.first_line_indent = Pt(self._BODY_FIRST_LINE_PT)
+            paragraph.paragraph_format.space_after = Pt(0)
         else:
             # Прямое форматирование исходника (выравнивание/отступы) переносится;
             # None — наследование стиля шаблона.

@@ -20,6 +20,7 @@
 from __future__ import annotations
 
 import argparse
+import copy
 from pathlib import Path
 
 from docx import Document
@@ -44,11 +45,43 @@ TEMPLATES_DIR = PROJECT_ROOT / "templates"
 # --------------------------------------------------------------------------- #
 #  Утилиты редактирования docx
 # --------------------------------------------------------------------------- #
+def _capture_rpr(paragraph: Paragraph):
+    """Снимок rPr первого содержательного run — чтобы при замене текста
+    сохранить шрифт/размер исходной формы (титульные строки — явные 12pt).
+
+    Цвет, заливка и подчёркивание исходного run не переносятся: редакторские
+    подписи в формах красные, а подсветку/линии значений мы задаём сами."""
+    runs = paragraph.runs
+    rpr = None
+    for r in runs:
+        if r.text.strip() and r._element.rPr is not None:
+            rpr = copy.deepcopy(r._element.rPr)
+            break
+    if rpr is None and runs and runs[0]._element.rPr is not None:
+        rpr = copy.deepcopy(runs[0]._element.rPr)
+    if rpr is not None:
+        for tag in ("w:color", "w:highlight", "w:u"):
+            el = rpr.find(qn(tag))
+            if el is not None:
+                rpr.remove(el)
+    return rpr
+
+
+def _apply_rpr(run, rpr) -> None:
+    if rpr is None:
+        return
+    el = run._element
+    if el.rPr is not None:
+        el.remove(el.rPr)
+    el.insert(0, copy.deepcopy(rpr))
+
+
 def set_text(paragraph: Paragraph, text: str) -> None:
-    """Заменяет весь текст абзаца одним runом (сохраняя стиль абзаца)."""
+    """Заменяет весь текст абзаца одним runом (сохраняя стиль абзаца и rPr)."""
+    rpr = _capture_rpr(paragraph)
     for run in list(paragraph.runs):
         run._element.getparent().remove(run._element)
-    paragraph.add_run(text)
+    _apply_rpr(paragraph.add_run(text), rpr)
 
 
 def clear(paragraph: Paragraph) -> None:
@@ -70,31 +103,46 @@ def set_value_tag(paragraph: Paragraph, tag: str) -> None:
 
 def set_label_value(paragraph: Paragraph, label: str, tag: str) -> None:
     """Абзац = метка (без подсветки) + тег значения (жёлтый)."""
+    rpr = _capture_rpr(paragraph)
     for run in list(paragraph.runs):
         run._element.getparent().remove(run._element)
-    paragraph.add_run(label)
-    hl_run(paragraph.add_run(tag))
+    _apply_rpr(paragraph.add_run(label), rpr)
+    value = paragraph.add_run(tag)
+    _apply_rpr(value, rpr)
+    hl_run(value)
 
 
 def set_label_value_underlined(
-    paragraph: Paragraph, label: str, tag: str, *, value_prefix: str = ""
+    paragraph: Paragraph,
+    label: str,
+    tag: str,
+    *,
+    value_prefix: str = "",
+    tail: tuple[str, ...] = ("\t",),
 ) -> None:
     """Титульная строка формы: метка + подчёркнутое значение (жёлтое) +
-    подчёркнутый таб — «нижняя линия» до табстопа, как в исходной форме.
+    подчёркнутые табы — «нижняя линия» до табстопов, как в исходной форме.
 
-    ``value_prefix`` — пробельный отступ перед значением (в форме это «\xa0\xa0»
-    или пробел), тоже подчёркнутый."""
+    ``value_prefix`` — пробельный отступ перед значением («\xa0\xa0»/пробел),
+    ``tail`` — хвостовые run'ы линии (число табов в форме у строк разное).
+    rPr исходных run (шрифт, размер 12pt) сохраняется — иначе строки становятся
+    крупнее, переносятся и линии уезжают."""
+    rpr = _capture_rpr(paragraph)
     for run in list(paragraph.runs):
         run._element.getparent().remove(run._element)
-    paragraph.add_run(label)
+    _apply_rpr(paragraph.add_run(label), rpr)
     if value_prefix:
         pre = paragraph.add_run(value_prefix)
+        _apply_rpr(pre, rpr)
         pre.underline = True
     value = paragraph.add_run(tag)
+    _apply_rpr(value, rpr)
     value.underline = True
     hl_run(value)
-    tail = paragraph.add_run("\t")
-    tail.underline = True
+    for tail_text in tail:
+        t = paragraph.add_run(tail_text)
+        _apply_rpr(t, rpr)
+        t.underline = True
 
 
 def insert_before(paragraph: Paragraph, text: str) -> Paragraph:
@@ -281,9 +329,9 @@ def tag_fos(src: Path, dst: Path) -> None:
             # Пробельные отступы перед значениями — как в форме/эталонах.
             set_label_value_underlined(p, "по направлению подготовки ", "{{ direction }}", value_prefix=" ")
         elif t.startswith("направленности"):
-            set_label_value_underlined(p, "направленности (профиля) ", "{{ profile }}")
+            set_label_value_underlined(p, "направленности (профиля) ", "{{ profile }}", tail=("	", "	", "	"))
         elif t.startswith("форма обучения"):
-            set_label_value_underlined(p, "форма обучения ", "{{ form_study }}", value_prefix="  ")
+            set_label_value_underlined(p, "форма обучения ", "{{ form_study }}  ", value_prefix="  ", tail=("	", "	", "	", "	"))
         # Статики формы «Примерный перечень задач» / «Примерный состав тестовых
         # вопросов…» сохраняются (так в одобренных эталонах) — контент после них.
         elif "примерный перечень задач" in t:
@@ -303,7 +351,7 @@ def tag_fos(src: Path, dst: Path) -> None:
         elif "обязательно с ответами" in t:
             to_remove.append(p)
         elif t.startswith("заседания кафедры"):
-            set_label_value_underlined(p, "заседания кафедры ", "{{ department_name }}", value_prefix="  ")
+            set_label_value_underlined(p, "заседания кафедры ", "{{ department_name }}", value_prefix="  ", tail=("	 ",))
         elif "методов в экономике и управлении" in t:
             to_remove.append(p)  # хвост захардкоженного названия кафедры (вторая строка)
         elif "государственной итоговой" in t:
@@ -317,33 +365,12 @@ def tag_fos(src: Path, dst: Path) -> None:
         insert_after(tag_p, "{%p endif %}")
     for p in to_remove:
         remove_paragraph(p)
-    _tighten_fos_title(doc)
 
     strip_red_highlights(doc)
     dst.parent.mkdir(parents=True, exist_ok=True)
     doc.save(str(dst))
     print(f"[ФОС] {src.name} → {dst}")
 
-
-def _tighten_fos_title(doc: Document) -> None:
-    """Убирает 2 пустых абзаца перед «Москва, …» на титуле ФОС.
-
-    Реальные значения (название дисциплины, профиль) длиннее однострочных
-    заглушек формы и переносятся — без запаса «Москва, 2026» уезжает на
-    следующую страницу."""
-    paragraphs = doc.paragraphs
-    for i, p in enumerate(paragraphs):
-        if n(p.text).startswith("москва"):
-            removed = 0
-            for q in reversed(paragraphs[:i]):
-                if removed == 2:
-                    break
-                if not q.text.strip():
-                    remove_paragraph(q)
-                    removed += 1
-                else:
-                    break
-            break
 
 
 def main() -> None:
