@@ -112,6 +112,21 @@ def set_label_value(paragraph: Paragraph, label: str, tag: str) -> None:
     hl_run(value)
 
 
+def _set_right_tab(paragraph: Paragraph, pos_twips: int) -> None:
+    """Заменяет табстопы абзаца одним right-табом на ``pos_twips`` —
+    хвостовой подчёркнутый таб дотягивает «нижнюю линию» ровно до него."""
+    pPr = paragraph._p.get_or_add_pPr()
+    old = pPr.find(qn("w:tabs"))
+    if old is not None:
+        pPr.remove(old)
+    tabs = OxmlElement("w:tabs")
+    tab = OxmlElement("w:tab")
+    tab.set(qn("w:val"), "right")
+    tab.set(qn("w:pos"), str(pos_twips))
+    tabs.append(tab)
+    pPr.append(tabs)
+
+
 def set_label_value_underlined(
     paragraph: Paragraph,
     label: str,
@@ -119,15 +134,20 @@ def set_label_value_underlined(
     *,
     value_prefix: str = "",
     tail: tuple[str, ...] = ("\t",),
+    right_tab_twips: int | None = None,
 ) -> None:
     """Титульная строка формы: метка + подчёркнутое значение (жёлтое) +
     подчёркнутые табы — «нижняя линия» до табстопов, как в исходной форме.
 
     ``value_prefix`` — пробельный отступ перед значением («\xa0\xa0»/пробел),
-    ``tail`` — хвостовые run'ы линии (число табов в форме у строк разное).
+    ``tail`` — хвостовые run'ы линии; ``right_tab_twips`` — позиция правого
+    табстопа линии (штатные стопы формы стоят на середине строки — линия
+    обрывалась, до края её дотягивали только длинные значения).
     rPr исходных run (шрифт, размер 12pt) сохраняется — иначе строки становятся
     крупнее, переносятся и линии уезжают."""
     rpr = _capture_rpr(paragraph)
+    if right_tab_twips is not None:
+        _set_right_tab(paragraph, right_tab_twips)
     for run in list(paragraph.runs):
         run._element.getparent().remove(run._element)
     _apply_rpr(paragraph.add_run(label), rpr)
@@ -327,11 +347,11 @@ def tag_fos(src: Path, dst: Path) -> None:
             set_value_tag(p, "{{ index }} {{ name }}")
         elif t.startswith("по направлению подготовки"):
             # Пробельные отступы перед значениями — как в форме/эталонах.
-            set_label_value_underlined(p, "по направлению подготовки ", "{{ direction }}", value_prefix=" ")
+            set_label_value_underlined(p, "по направлению подготовки ", "{{ direction }}", value_prefix=" ", right_tab_twips=9638)
         elif t.startswith("направленности"):
-            set_label_value_underlined(p, "направленности (профиля) ", "{{ profile }}", tail=("	", "	", "	"))
+            set_label_value_underlined(p, "направленности (профиля) ", "{{ profile }}", right_tab_twips=9638)
         elif t.startswith("форма обучения"):
-            set_label_value_underlined(p, "форма обучения ", "{{ form_study }}  ", value_prefix="  ", tail=("	", "	", "	", "	"))
+            set_label_value_underlined(p, "форма обучения ", "{{ form_study }}  ", value_prefix="  ", right_tab_twips=9638)
         # Статики формы «Примерный перечень задач» / «Примерный состав тестовых
         # вопросов…» сохраняются (так в одобренных эталонах) — контент после них.
         elif "примерный перечень задач" in t:
@@ -365,11 +385,30 @@ def tag_fos(src: Path, dst: Path) -> None:
         insert_after(tag_p, "{%p endif %}")
     for p in to_remove:
         remove_paragraph(p)
+    _fix_fos_page_break(doc)
 
     strip_red_highlights(doc)
     dst.parent.mkdir(parents=True, exist_ok=True)
     doc.save(str(dst))
     print(f"[ФОС] {src.name} → {dst}")
+
+
+def _fix_fos_page_break(doc: Document) -> None:
+    """Раздел 1 начинает страницу свойством pageBreakBefore.
+
+    В форме разрыв страницы — отдельный пустой абзац после «Москва, 2026»:
+    при длинных значениях титула (название, профиль) он уезжал на следующую
+    страницу и оставлял пустой лист. Абзацы-прокладки удаляются, разрыв
+    становится свойством первого содержательного абзаца."""
+    paragraphs = doc.paragraphs
+    mi = next((i for i, p in enumerate(paragraphs) if n(p.text).startswith("москва")), None)
+    if mi is None:
+        return
+    for p in paragraphs[mi + 1 :]:
+        if p.text.strip():
+            p.paragraph_format.page_break_before = True
+            break
+        remove_paragraph(p)
 
 
 
