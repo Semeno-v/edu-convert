@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import atexit
 import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -21,6 +22,17 @@ from app.ui.components.report_table import ReportTable
 from app.ui.components.upload_card import UploadCard
 
 _INPUT_SUFFIXES = {".doc", ".docx"}
+
+# Очистка temp последнего прогона при выходе из приложения (ТЗ §7.3):
+# без этого workdir и ZIP последнего запуска оставались на диске навсегда.
+_pending_cleanup: list[RunResult] = []
+
+
+@atexit.register
+def _cleanup_pending() -> None:
+    for result in _pending_cleanup:
+        result.cleanup()
+    _pending_cleanup.clear()
 
 
 @ft.observable
@@ -109,6 +121,7 @@ class AppState:
             orch = Orchestrator(self.db_path, self.rpd_path, self.fos_path)
             result = await orch.run(list(self.input_files), on_progress)
             self._run_result = result
+            _pending_cleanup.append(result)
             self.results = result.report.results
             self.status = (
                 f"Готово: успешно {result.report.succeeded}, "
@@ -130,6 +143,8 @@ class AppState:
     def _dispose_previous(self) -> None:
         if self._run_result is not None:
             self._run_result.cleanup()  # очистка temp прошлого прогона (ТЗ §7.3)
+            if self._run_result in _pending_cleanup:
+                _pending_cleanup.remove(self._run_result)
             self._run_result = None
 
 

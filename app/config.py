@@ -33,7 +33,6 @@ class Settings(BaseSettings):
 
     # --- Excel -------------------------------------------------------------- #
     plan_sheet: str = "План"
-    plansvod_sheet: str = "ПланСвод"
 
     # --- Имя листа конвертации .doc ---------------------------------------- #
     doc_format_docx: int = 16  # wdFormatDocumentDefault для Word.SaveAs2

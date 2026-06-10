@@ -115,16 +115,22 @@ class Orchestrator:
         out_dir = workdir / "output"
         out_dir.mkdir(parents=True, exist_ok=True)
 
-        report = RunReport()
-        total = len(input_files)
-        for i, path in enumerate(input_files):
-            notify(i, total, f"Обработка файла: {path.name}")
-            result = await anyio.to_thread.run_sync(self._process_file_safe, path, out_dir)
-            report.results.append(result)
+        try:
+            report = RunReport()
+            total = len(input_files)
+            for i, path in enumerate(input_files):
+                notify(i, total, f"Обработка файла: {path.name}")
+                result = await anyio.to_thread.run_sync(self._process_file_safe, path, out_dir)
+                report.results.append(result)
 
-        notify(total, total, "Формирование отчёта и архива…")
-        report_path = await anyio.to_thread.run_sync(self._write_report, report, out_dir)
-        zip_path = await anyio.to_thread.run_sync(self._make_zip, out_dir, workdir)
+            notify(total, total, "Формирование отчёта и архива…")
+            report_path = await anyio.to_thread.run_sync(self._write_report, report, out_dir)
+            zip_path = await anyio.to_thread.run_sync(self._make_zip, out_dir, workdir)
+        except BaseException:
+            # Сбой до выдачи RunResult — вызвать cleanup() будет некому,
+            # временную папку убираем сами (ТЗ §7.3).
+            shutil.rmtree(workdir, ignore_errors=True)
+            raise
         logger.info(
             "Готово: успешно=%d, расхождений=%d, ошибок=%d",
             report.succeeded,

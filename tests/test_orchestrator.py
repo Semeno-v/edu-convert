@@ -68,3 +68,26 @@ def test_orchestrator_end_to_end(plan_xlsx: Path, rpd_docx: Path, tmp_path: Path
     result.cleanup()
     assert not workdir.exists()
     assert not zip_path.exists()
+
+
+def test_orchestrator_failure_cleans_workdir(
+    plan_xlsx: Path, rpd_docx: Path, monkeypatch, tmp_path: Path
+) -> None:
+    # Сбой на формировании отчёта/архива не должен оставлять workdir в temp:
+    # RunResult ещё не создан, cleanup() вызвать некому.
+    from app.config import settings
+
+    orch = Orchestrator(plan_xlsx)
+
+    def boom(*args: object, **kwargs: object) -> None:
+        raise OSError("диск занят")
+
+    monkeypatch.setattr(orch, "_make_zip", boom)
+    before = set(settings.temp_root.glob("run_*")) if settings.temp_root.exists() else set()
+    try:
+        anyio.run(orch.run, [rpd_docx])
+        raise AssertionError("ожидался OSError")
+    except OSError:
+        pass
+    after = set(settings.temp_root.glob("run_*")) if settings.temp_root.exists() else set()
+    assert after == before  # новых осиротевших папок не появилось
