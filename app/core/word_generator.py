@@ -80,6 +80,12 @@ class DocxtplGenerator:
         tpl = DocxTemplate(str(template_path))
         context = self._build_context(tpl, subject, content, doc_type)
         tpl.render(context, autoescape=True)
+        if doc_type == DocType.RPD:
+            # Официальная таблица тем заполняется после рендера: темы — из
+            # исходника, часы масштабируются к Базе (золотое правило).
+            # Именно tpl.docx: get_docx() перезагрузил бы исходный шаблон,
+            # затерев отрендеренное дерево (init_docx при is_rendered).
+            _fill_topics_table(tpl.docx, content.get("thematic_plan"), subject)
         out_path.parent.mkdir(parents=True, exist_ok=True)
         tpl.save(str(out_path))
         return out_path
@@ -107,11 +113,13 @@ class DocxtplGenerator:
             "hours_lab": subject.hours_lab or "-",
             "hours_project": subject.hours_project,
             "hours_extra_contact": max(subject.hours_contact - subject.hours_aud, 0),
-            # «Часы самостоятельной работы» в форме = СРС + контроль (как в эталоне).
-            "hours_self_study": subject.hours_srs + subject.hours_control,
+            # «Часы самостоятельной работы» в форме = чистая СРС из Базы
+            # (часы контроля в таблице эталона не отображаются).
+            "hours_self_study": subject.hours_srs,
             "control_summary": subject.control_summary,
-            # Вид аттестации без семестра — для посеместровой колонки таблицы §3.
-            "control_kind": ", ".join(dict.fromkeys(cf.kind.value for cf in subject.control_forms)),
+            # Вид аттестации строчными, без семестра — обе ячейки таблицы §3
+            # эталона: «экзамен | экзамен».
+            "control_kind": ", ".join(dict.fromkeys(cf.kind.value for cf in subject.control_forms)).lower(),
             "semesters": ", ".join(str(s) for s in subject.semesters),
             "department": subject.department or "",
             # «заседания кафедры математических методов…» — род. падеж контекста,
@@ -134,14 +142,11 @@ class DocxtplGenerator:
                 context["outcomes_" + level] = outcomes.get(level, "")
             context["competencies"] = self._competencies_subdoc(tpl, subject)
             context["indicators"] = self._indicators_subdoc(tpl, subject)
-            context["thematic_plan"] = self._block_to_subdoc(
-                tpl, content.get("thematic_plan"), empty_text=""
-            )
             context["literature_main"] = self._literature_subdoc(tpl, content.get("literature_main"))
             context["literature_extra"] = self._literature_subdoc(tpl, content.get("literature_extra"))
-            context["internet_resources"] = self._block_to_subdoc(
-                tpl, content.get("internet_resources")
-            )
+            # §4.3 в одобренных эталонах РПД — «Не предусмотрено.»: ссылки
+            # исходников дублируют статичные §5/§6, таблицы не переносятся.
+            context["internet_resources"] = self._block_to_subdoc(tpl, None, font_size_pt=12)
         else:
             # Индикаторы для строки «Задачи к разделу 1. (…индикатор …)» — из Базы.
             context["fos_indicators"] = ", ".join(subject.competence_codes)
@@ -160,20 +165,20 @@ class DocxtplGenerator:
     def _competencies_subdoc(self, tpl: DocxTemplate, subject: SubjectData):
         sd = tpl.new_subdoc()
         if not subject.competencies:
-            self._add_text(sd, _PLACEHOLDER, highlight=True)
+            self._add_text(sd, _PLACEHOLDER, highlight=True, font_size_pt=12)
             return sd
         for group in subject.competencies:
-            self._add_text(sd, f"{group.code} - {group.text}".strip(" -"), highlight=True)
+            self._add_text(sd, _dot(f"{group.code} - {group.text}".strip(" -")), highlight=True, font_size_pt=12)
         return sd
 
     def _indicators_subdoc(self, tpl: DocxTemplate, subject: SubjectData):
         sd = tpl.new_subdoc()
         indicators = [ind for g in subject.competencies for ind in g.indicators]
         if not indicators:
-            self._add_text(sd, _PLACEHOLDER, highlight=True)
+            self._add_text(sd, _PLACEHOLDER, highlight=True, font_size_pt=12)
             return sd
         for ind in indicators:
-            self._add_text(sd, f"{ind.code}. {ind.text}".strip(), highlight=True)
+            self._add_text(sd, _dot(f"{ind.code}. {ind.text}".strip()), highlight=True, font_size_pt=12)
         return sd
 
     # ------------------------------------------------------------------ #
@@ -183,10 +188,10 @@ class DocxtplGenerator:
         sd = tpl.new_subdoc()
         citations = _table_to_citations(block)
         if not citations:
-            self._add_text(sd, _PLACEHOLDER, highlight=True)
+            self._add_text(sd, _PLACEHOLDER, highlight=True, font_size_pt=12)
             return sd
         for i, cite in enumerate(citations, 1):
-            self._add_text(sd, f"{i}. {cite}", highlight=True)
+            self._add_text(sd, f"{i}. {cite}", highlight=True, font_size_pt=12)
         return sd
 
     # ------------------------------------------------------------------ #
@@ -199,15 +204,17 @@ class DocxtplGenerator:
         empty_text: str = _PLACEHOLDER,
         *,
         body_format: bool = False,
+        font_size_pt: float | None = None,
     ):
         sd = tpl.new_subdoc()
         if block is None or block.is_empty:
-            self._add_text(sd, empty_text, highlight=bool(empty_text))
+            self._add_text(sd, empty_text, highlight=bool(empty_text), font_size_pt=font_size_pt)
             return sd
         for element in block.elements:
             if element.kind == ElementKind.PARAGRAPH and element.paragraph is not None:
                 self._add_paragraph(
-                    sd, element.paragraph, highlight=True, body_format=body_format
+                    sd, element.paragraph, highlight=True, body_format=body_format,
+                    font_size_pt=font_size_pt,
                 )
             elif element.kind == ElementKind.TABLE and element.table is not None:
                 self._add_table(sd, element.table, highlight=True)
@@ -221,8 +228,10 @@ class DocxtplGenerator:
         if highlight:
             run.font.highlight_color = WD_COLOR_INDEX.YELLOW
 
-    def _add_text(self, sd, text: str, *, highlight: bool) -> None:
+    def _add_text(self, sd, text: str, *, highlight: bool, font_size_pt: float | None = None) -> None:
         run = sd.add_paragraph().add_run(text)
+        if font_size_pt is not None:
+            run.font.size = Pt(font_size_pt)
         self._hl(run, highlight)
 
     _ALIGNMENTS = {
@@ -236,7 +245,8 @@ class DocxtplGenerator:
     _BODY_FIRST_LINE_PT = 28.35
 
     def _add_paragraph(
-        self, sd, rich: RichParagraph, *, highlight: bool, body_format: bool = False
+        self, sd, rich: RichParagraph, *, highlight: bool, body_format: bool = False,
+        font_size_pt: float | None = None,
     ) -> None:
         # Маркер/номер списка уже синтезирован экстрактором в текст ранов —
         # стиль списка не назначаем, чтобы не получить двойной маркер.
@@ -264,6 +274,8 @@ class DocxtplGenerator:
                 # эталоны приводят контент к единому стилю формы (жирные
                 # «Ответ:» и пр. в одобренных документах вычищены).
                 r.bold, r.italic, r.underline = run.bold, run.italic, run.underline
+            if font_size_pt is not None:
+                r.font.size = Pt(font_size_pt)
             self._hl(r, highlight)
 
     def _add_table(self, sd, rich: RichTable, *, highlight: bool) -> None:
@@ -311,43 +323,55 @@ def _cell_text(cell) -> str:
 
 
 def _assessment_outcomes(block: ContentBlock | None) -> dict[str, str]:
-    """Извлекает результаты обучения по уровням оценки из таблицы §8 исходной РПД.
+    """Результаты обучения для §8 из таблицы оценивания исходной РПД.
 
-    Возвращает словарь уровень→текст (через перевод строки):
-    «5»=отлично, «4»=хорошо, «3»=удовлетворительно, «2»=неудовлетворительно.
-    Для дисциплин с зачётом «Зачтено» раскладывается на 5/4/3, «Не зачтено» → 2.
-    Источник результатов — последняя колонка таблицы («Формулировка требований»).
+    Формат одобренных эталонов: формулировки **лучшего** уровня («Отлично» /
+    «Зачтено») агрегируются в абзацы «Знает …; …», «Умеет …; …», «Владеет …; …»
+    (повторный глагол у продолжений срезается) и тиражируются на все четыре
+    строки §8 — различаются только вводные фразы шаблона. Ячейка уровня в
+    исходнике обычно объединена по вертикали — пустой уровень наследуется.
     """
     if block is None:
         return {}
     table = next((e.table for e in block.elements if e.table is not None), None)
     if table is None or len(table.rows) < 2:
         return {}
+
     grades: dict[str, list[str]] = {}
+    last_grade = ""
     for row in table.rows[1:]:
         if not row.cells:
             continue
-        grade = _cell_text(row.cells[0])
+        grade = normalize_text(_cell_text(row.cells[0])) or last_grade
+        last_grade = grade
         requirement = _cell_text(row.cells[-1])
-        if grade and requirement:
-            grades.setdefault(normalize_text(grade), []).append(requirement)
+        if grade and requirement and requirement != grade:
+            grades.setdefault(grade, []).append(requirement)
 
-    out: dict[str, str] = {}
-    for gnorm, reqs in grades.items():
-        joined = "\n".join(dict.fromkeys(reqs))  # уникальные, по порядку
-        if "неуд" in gnorm or "не зачт" in gnorm:
-            out["2"] = joined
-        elif "отл" in gnorm:
-            out["5"] = joined
-        elif "хор" in gnorm:
-            out["4"] = joined
-        elif "удовл" in gnorm:
-            out["3"] = joined
-        elif "зачт" in gnorm:  # зачёт → положительные уровни
-            out.setdefault("5", joined)
-            out.setdefault("4", joined)
-            out.setdefault("3", joined)
-    return out
+    best = next(
+        (grades[g] for key in ("отл", "зачт") for g in grades
+         if key in g and "не зачт" not in g),
+        None,
+    )
+    if not best:
+        return {}
+
+    # Группировка по ведущему глаголу; продолжения — через «;» без глагола.
+    order = ("знает", "умеет", "владеет")
+    groups: dict[str, list[str]] = {k: [] for k in order}
+    extras: list[str] = []
+    for req in dict.fromkeys(best):
+        req = req.strip().rstrip(".")  # точки на стыках «;» эталон срезает
+        verb = next((v for v in order if normalize_text(req).startswith(v)), None)
+        if verb is None:
+            extras.append(req)
+        elif groups[verb]:
+            groups[verb].append(re.sub(r"^\s*\S+\s+", "", req))  # срезаем глагол
+        else:
+            groups[verb].append(req)
+    paragraphs = ["; ".join(items) for items in groups.values() if items] + extras
+    text = "\a".join(paragraphs)  # \a — новый абзац в docxtpl
+    return {"5": text, "4": text, "3": text, "2": text}
 
 
 def _table_to_citations(block: ContentBlock | None) -> list[str]:
@@ -370,11 +394,173 @@ def _table_to_citations(block: ContentBlock | None) -> list[str]:
         def g(i: int | None, _cells: list[str] = cells) -> str:
             return _cells[i].strip() if i is not None and i < len(_cells) else ""
 
-        parts = [p for p in (g(ca), g(ct), g(co), g(cu)) if p]
-        if g(ca) or g(ct):
+        title = re.sub(r"\s+-\s+(\d+-е изд)", r". \1", g(ct))  # «… - 1-е изд» → «…. 1-е изд»
+        # Выходные данные — в формат эталона: «2015. 482 с.»
+        imprint = g(co)
+        imprint = re.sub(r"Год издания:\s*(\d{4})\.?", r"\1.", imprint)
+        imprint = re.sub(r"(?:Объем|Кол-во страниц):\s*(\d+)\s*(?:стр\.?|с\.?)?", r"\1 с.", imprint)
+        url = g(cu)
+        if url and "http" in url and not url.lower().startswith("url"):
+            url = "URL: " + url
+
+        parts = [p for p in (g(ca), title, imprint, url) if p]
+        if g(ca) or title:
             cite = re.sub(r"\.\s*\.", ".", ". ".join(parts))  # убираем двойные точки
             citations.append(cite)
     return citations
+
+
+def _to_num(text: str) -> float | None:
+    """«1,6» → 1.6; пустые/нечисловые → None."""
+    t = text.strip().replace("\xa0", "").replace(",", ".")
+    if not t or t == "-":
+        return None
+    try:
+        return float(t)
+    except ValueError:
+        return None
+
+
+def _fmt_hours(value: float) -> str:
+    """1.6 → «1,6», 4.0 → «4» (формат часов в эталонной таблице тем)."""
+    value = round(value, 2)
+    if float(value).is_integer():
+        return str(int(value))
+    return f"{value:g}".replace(".", ",")
+
+
+def _fill_topics_table(docx, block: ContentBlock | None, subject: SubjectData) -> None:
+    """Заполняет официальную таблицу «Темы (разделы) дисциплины» (§3).
+
+    Темы и распределение часов берутся из таблицы §3 исходника, но часы
+    каждого вида масштабируются так, чтобы итоги совпали с Базой (в старых
+    таблицах часы устаревшие — золотое правило). Колонки исходника ищутся по
+    ключевым словам шапки; строки-болванки шаблона заменяются данными.
+    """
+    table = next(
+        (
+            t
+            for t in docx.tables
+            if len(t.columns) == 7 and "Темы (разделы)" in t.rows[0].cells[1].text
+        ),
+        None,
+    )
+    src = next((e.table for e in block.elements if e.table is not None), None) if block else None
+    if table is None or src is None or len(src.rows) < 2:
+        return
+
+    def cell_text(cell) -> str:
+        # Перенос строки внутри ячейки исходника (несколько абзацев) сохраняется.
+        return "\n".join(p.text for p in cell.paragraphs).strip()
+
+    # Колонки исходной таблицы по ключевым словам шапки (первые 3 строки).
+    nsrc = max(len(r.cells) for r in src.rows)
+    labels = ["" for _ in range(nsrc)]
+    for row in src.rows[:3]:
+        for c, cell in enumerate(row.cells[:nsrc]):
+            labels[c] += " " + normalize_text(cell_text(cell))
+
+    def find_col(*keywords: str) -> int | None:
+        return next((c for c, lab in enumerate(labels) if any(k in lab for k in keywords)), None)
+
+    col_topic = find_col("содержан", "наименование тем", "темы")
+    cols = {
+        "lectures": (find_col("лекци"), subject.hours_lectures),
+        "practical": (find_col("практическ", "семинар"), subject.hours_practical),
+        "lab": (find_col("лабораторн"), subject.hours_lab),
+        "project": (find_col("проектн"), subject.hours_project),
+    }
+    if col_topic is None or cols["lectures"][0] is None:
+        return
+
+    # Строки тем: непустая тема, не шапка и не «итого».
+    topic_rows = []
+    for row in src.rows:
+        cells = [cell_text(c) for c in row.cells]
+        topic = cells[col_topic] if col_topic < len(cells) else ""
+        if not topic or "итого" in normalize_text(cells[0]) or "итого" in normalize_text(topic):
+            continue
+        if normalize_text(topic) in ("содержание", "наименование тем (разделов)"):
+            continue
+        topic_rows.append(cells)
+
+    # Коэффициенты масштабирования к Базе по каждому виду занятий.
+    def values(col: int | None) -> list[float | None]:
+        if col is None:
+            return [None] * len(topic_rows)
+        return [_to_num(cells[col]) if col < len(cells) else None for cells in topic_rows]
+
+    scaled: dict[str, list[str]] = {}
+    totals: dict[str, float] = {}
+    for key, (col, base_total) in cols.items():
+        vals = values(col)
+        src_sum = sum(v for v in vals if v)
+        k = (base_total / src_sum) if src_sum and base_total else (1.0 if base_total else 0.0)
+        out_vals: list[str] = []
+        for v in vals:
+            if v is None:
+                out_vals.append("-")
+            elif v == 0:
+                out_vals.append("0")
+            else:
+                out_vals.append(_fmt_hours(v * k))
+        if col is None and not base_total:
+            out_vals = ["-"] * len(topic_rows)
+        scaled[key] = out_vals
+        totals[key] = float(base_total)
+    order = ("lectures", "practical", "lab", "project")
+
+    # Строки-болванки шаблона (после строки с номерами колонок «1…7») —
+    # первая клонируется как образец форматирования.
+    digit_idx = next(
+        (i for i, r in enumerate(table.rows) if cell_text(r.cells[0]).strip() == "1"
+         and cell_text(r.cells[-1]).strip() == "7"),
+        2,
+    )
+    blanks = list(table.rows)[digit_idx + 1 :]
+    if not blanks:
+        return
+    import copy as _copy
+
+    proto = _copy.deepcopy(blanks[0]._tr)
+    for row in blanks:
+        row._tr.getparent().remove(row._tr)
+
+    from docx.table import _Row
+
+    def add_row(texts: list[str]) -> None:
+        tr = _copy.deepcopy(proto)
+        table._tbl.append(tr)
+        row = _Row(tr, table)
+        for c, text in enumerate(texts):
+            if c >= len(row.cells):
+                break
+            cell = row.cells[c]
+            cell.text = ""
+            for pi, line in enumerate(text.split("\n")):
+                paragraph = cell.paragraphs[0] if pi == 0 else cell.add_paragraph()
+                run = paragraph.add_run(line)
+                run.font.highlight_color = WD_COLOR_INDEX.YELLOW
+
+    for i, cells in enumerate(topic_rows):
+        row_total = sum(_to_num(scaled[key][i].replace(',', '.')) or 0 for key in order)
+        add_row([
+            str(i + 1),
+            cells[col_topic],
+            *(scaled[key][i] for key in order),
+            _fmt_hours(row_total),
+        ])
+    add_row([
+        "",
+        "ИТОГО",
+        *(_fmt_hours(totals[key]) if totals[key] else "-" for key in order),
+        _fmt_hours(sum(totals.values())),
+    ])
+
+
+def _dot(text: str) -> str:
+    """Завершающая точка, как в эталонных абзацах §2."""
+    return text if text.endswith(".") else text + "."
 
 
 def _decapitalize(text: str) -> str:

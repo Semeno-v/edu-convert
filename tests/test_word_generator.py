@@ -41,6 +41,9 @@ def _assessment_block() -> ContentBlock:
     rows = [
         RichTableRow(cells=[cell("Оценка"), cell("Компетенция"), cell("Формулировка требований")]),
         RichTableRow(cells=[cell("Отлично"), cell("ПК-1"), cell("Знает на высоком уровне X")]),
+        # vMerge-продолжение уровня «Отлично»: уровень наследуется
+        RichTableRow(cells=[cell(""), cell("ПК-1"), cell("Знает также Y")]),
+        RichTableRow(cells=[cell(""), cell("ПК-1"), cell("Умеет применять X")]),
         RichTableRow(cells=[cell("Неудовлетворительно"), cell("ПК-1"), cell("Не знает X")]),
     ]
     return ContentBlock(key="assessment", title="Оценка качества",
@@ -131,12 +134,15 @@ def test_generate_uses_excel_numbers(
     assert hours.get("lec") == "12"
     assert hours.get("pr") == "10"
 
-    # Аттестация: «Всего» = сводка с семестром, посеместровая = вид (как в эталоне).
+    # Аттестация: вид строчными в обеих ячейках («экзамен | экзамен» в эталоне).
     for table in doc.tables:
         if "Вид учебной работы" in " ".join(c.text for c in table.rows[0].cells):
             att = next(r for r in table.rows if "аттестации" in r.cells[0].text)
-            assert att.cells[2].text.strip() == "Зачет (1)"
-            assert att.cells[3].text.strip() == "Зачет"
+            assert att.cells[2].text.strip() == "зачет"
+            assert att.cells[3].text.strip() == "зачет"
+            # «Часы самостоятельной работы» = чистая СРС из Базы (без контроля)
+            srs = next(r for r in table.rows if "самостоятельной" in r.cells[0].text)
+            assert srs.cells[2].text.strip() == "78"
 
     xml = zipfile.ZipFile(out).read("word/document.xml").decode("utf-8", "replace")
     # Литература переформатирована из таблицы в список — автор присутствует.
@@ -158,21 +164,26 @@ def test_competencies_built_from_base(
 
 
 def test_assessment_outcomes_by_grade() -> None:
+    # Формат эталонов: формулировки лучшего уровня группируются по глаголу
+    # («Знает …; …» / «Умеет …») и тиражируются на все уровни.
     out = _assessment_outcomes(_assessment_block())
-    assert out["5"] == "Знает на высоком уровне X"   # отлично
-    assert out["2"] == "Не знает X"                  # неудовлетворительно
+    expected = "Знает на высоком уровне X; также Y\aУмеет применять X"
+    assert out["5"] == expected
+    assert out["2"] == expected  # та же формулировка, вводную даёт шаблон
 
 
 def test_section8_outcomes_filled(
     generator: DocxtplGenerator, subject: SubjectData, tmp_path: Path
 ) -> None:
-    # §8 «Наименование результатов» заполняется из §8 исходной РПД.
+    # §8 «Наименование результатов» заполняется из §8 исходной РПД:
+    # формулировки лучшего уровня — во всех четырёх строках.
     cb = ContentBlocks(blocks={"assessment": _assessment_block()})
     out = tmp_path / "out8.docx"
     generator.generate(settings.rpd_template, out, subject, cb, DocType.RPD)
     xml = zipfile.ZipFile(out).read("word/document.xml").decode("utf-8", "replace")
-    assert "Знает на высоком уровне X" in xml
-    assert "Не знает X" in xml
+    assert xml.count("Знает на высоком уровне X") == 4  # на каждом уровне
+    assert "Умеет применять X" in xml
+    assert "Не знает X" not in xml  # формулировки худших уровней не используются
 
 
 def test_generate_empty_block_placeholder(
@@ -185,21 +196,50 @@ def test_generate_empty_block_placeholder(
     assert out.exists()
 
 
-def test_generate_thematic_table_highlighted(
+def _topics_src_table() -> RichTable:
+    """Таблица §3 исходника: шапка с видами занятий + 2 темы + итого."""
+    def cell(t: str) -> RichTableCell:
+        return RichTableCell(paragraphs=[RichParagraph(runs=[RichRun(text=t)])])
+
+    return RichTable(rows=[
+        RichTableRow(cells=[cell("Этапы"), cell("Дескрипторы"), cell("Содержание"),
+                            cell("Лекционные занятия"), cell("Практические занятия"),
+                            cell("Проектное обучение"), cell("Итого")]),
+        RichTableRow(cells=[cell(""), cell("Д-1"), cell("Тема-АБВ"),
+                            cell("3"), cell("2,5"), cell(""), cell("5,5")]),
+        RichTableRow(cells=[cell(""), cell("Д-2"), cell("Тема-ГДЕ"),
+                            cell("3"), cell("2,5"), cell("1"), cell("6,5")]),
+        RichTableRow(cells=[cell("Итого по дисциплине:"), cell(""), cell(""),
+                            cell("6"), cell("5"), cell("1"), cell("12")]),
+    ])
+
+
+def test_generate_fills_official_topics_table(
     generator: DocxtplGenerator, subject: SubjectData, tmp_path: Path
 ) -> None:
-    # Контентная таблица (тематический план) переносится и подсвечивается жёлтым.
-    table = RichTable(rows=[RichTableRow(cells=[
-        RichTableCell(paragraphs=[RichParagraph(runs=[RichRun(text="Тема-АБВ")])]),
-    ])])
+    # Официальная таблица тем заполняется из исходника, часы масштабируются
+    # к Базе: лекции 6 → 12 (×2), практические 5 → 10 (×2), проектное 1 → 6.
     cb = ContentBlocks(blocks={"thematic_plan": ContentBlock(
         key="thematic_plan", title="ТП",
-        elements=[ContentElement(kind=ElementKind.TABLE, table=table)])})
+        elements=[ContentElement(kind=ElementKind.TABLE, table=_topics_src_table())])})
     out = tmp_path / "out_them.docx"
     generator.generate(settings.rpd_template, out, subject, cb, DocType.RPD)
+
+    doc = Document(str(out))
+    topics = next(t for t in doc.tables if "Темы (разделы)" in t.rows[0].cells[1].text)
+    rows = [[c.text.strip() for c in r.cells] for r in topics.rows]
+    tema = next(r for r in rows if r[1] == "Тема-АБВ")
+    assert tema[0] == "1"
+    assert tema[2] == "6"      # лекции 3 × (12/6)
+    assert tema[3] == "5"      # практические 2,5 × (10/5)
+    assert tema[4] == "-"      # лабораторных нет ни в исходнике, ни в Базе
+    assert tema[5] == "-"      # проектное: пусто в исходнике → «-»
+    assert tema[6] == "11"     # итого по строке
+    itogo = next(r for r in rows if r[1] == "ИТОГО")
+    assert itogo[2:] == ["12", "10", "-", "6", "28"]  # числа Базы (aud=28)
+    # заполненные ячейки подсвечены
     xml = zipfile.ZipFile(out).read("word/document.xml").decode("utf-8", "replace")
-    assert "Тема-АБВ" in xml
-    assert '<w:highlight w:val="yellow"' in xml
+    assert "Тема-АБВ" in xml and '<w:highlight w:val="yellow"' in xml
 
 
 def test_generate_fos(
@@ -274,11 +314,11 @@ def test_generate_table_restores_merges(
         RichTableRow(cells=[cell("Итого-XYZ", rowspan=2), cell("10"), cell("20")]),
         RichTableRow(cells=[cell(merged=True), cell("1"), cell("2")]),
     ])
-    cb = ContentBlocks(blocks={"thematic_plan": ContentBlock(
-        key="thematic_plan", title="ТП",
+    cb = ContentBlocks(blocks={"current_control": ContentBlock(
+        key="current_control", title="КВ",
         elements=[ContentElement(kind=ElementKind.TABLE, table=table)])})
     out = tmp_path / "merged.docx"
-    generator.generate(settings.rpd_template, out, subject, cb, DocType.RPD)
+    generator.generate(settings.fos_template, out, subject, cb, DocType.FOS)
     xml = zipfile.ZipFile(out).read("word/document.xml").decode("utf-8", "replace")
     assert xml.count("Шапка-АБВ") == 1
     assert xml.count("Итого-XYZ") == 1
@@ -298,11 +338,11 @@ def test_generate_large_table_fills_all_cells(
         ])
         for r in range(40)
     ]
-    cb = ContentBlocks(blocks={"thematic_plan": ContentBlock(
-        key="thematic_plan", title="ТП",
+    cb = ContentBlocks(blocks={"current_control": ContentBlock(
+        key="current_control", title="КВ",
         elements=[ContentElement(kind=ElementKind.TABLE, table=RichTable(rows=rows))])})
     out = tmp_path / "big.docx"
-    generator.generate(settings.rpd_template, out, subject, cb, DocType.RPD)
+    generator.generate(settings.fos_template, out, subject, cb, DocType.FOS)
     xml = zipfile.ZipFile(out).read("word/document.xml").decode("utf-8", "replace")
     missing = [f"яч-{r}-{c}" for r in range(40) for c in range(4) if f"яч-{r}-{c}" not in xml]
     assert missing == []

@@ -194,6 +194,7 @@ def n(text: str) -> str:
 # --------------------------------------------------------------------------- #
 def tag_rpd(src: Path, dst: Path) -> None:
     doc = Document(str(src))
+    to_remove: list[Paragraph] = []
 
     # --- Абзацы: замена подписей на теги, очистка примеров --- #
     for p in doc.paragraphs:
@@ -203,11 +204,11 @@ def tag_rpd(src: Path, dst: Path) -> None:
         if "код и наименование дисциплины" in t and p.text.strip().isupper():
             set_value_tag(p, "{{ index }} {{ name }}")
         elif t.startswith("по направлению подготовки"):
-            set_label_value(p, "по направлению подготовки ", "{{ direction }}")
+            set_label_value_underlined(p, "по направлению подготовки ", "{{ direction }}", value_prefix=" ", right_tab_twips=9638)
         elif t.startswith("направленности"):
-            set_label_value(p, "направленности (профиля) ", "{{ profile }}")
+            set_label_value_underlined(p, "направленности (профиля) ", "{{ profile }}", right_tab_twips=9638)
         elif t.startswith("форма обучения"):
-            set_label_value(p, "форма обучения ", "{{ form_study }}")
+            set_label_value_underlined(p, "форма обучения ", "{{ form_study }}\xa0\xa0", value_prefix="\xa0\xa0", right_tab_twips=9638)
         elif "цели в исходной программе нет" in t:
             clear(p)  # целей в исходных РПД нет — раздел заполняется вручную
         # Subdoc-теги — с префиксом «p»: docxtpl убирает абзац-носитель и
@@ -218,7 +219,9 @@ def tag_rpd(src: Path, dst: Path) -> None:
         elif "из п. 2 исходной рпд (столбец 4)" in t:
             set_text(p, "{{p indicators }}")
         elif "из исходной рпд п.3" in t:
-            set_text(p, "{{p thematic_plan }}")  # тематический план из старого документа (best-effort)
+            # Тематический план не вставляется subdoc'ом: официальная таблица
+            # тем заполняется генератором (часы масштабируются к Базе).
+            to_remove.append(p)
         elif "указать основную литературу" in t:
             set_text(p, "{{p literature_main }}")
         elif "указать дополнительную литературу" in t:
@@ -228,22 +231,80 @@ def tag_rpd(src: Path, dst: Path) -> None:
         elif "берем из учебного плана" in t:
             clear(p)
         elif t.startswith("заседания кафедры"):
-            set_label_value(p, "заседания кафедры ", "{{ department_name }}")
+            set_label_value_underlined(p, "заседания кафедры ", "{{ department_name }}", value_prefix="\xa0\xa0", tail=("\t ",))
         elif "методов в экономике и управлении" in t:
-            clear(p)  # хвост захардкоженного названия кафедры
+            to_remove.append(p)  # хвост захардкоженного названия кафедры (вторая строка)
         elif t.startswith("опк-1"):  # примеры компетенций/индикаторов
             clear(p)
+        elif t == "тематический план дисциплины":
+            # В эталоне тематический план начинается с новой страницы.
+            p.paragraph_format.page_break_before = True
+    for p in to_remove:
+        remove_paragraph(p)
 
     # --- Таблица часов: значения из Excel --- #
     _tag_hours_table(doc)
 
     # --- Остальные редакторские пометки (§3 тематический план, §8 оценивание) --- #
     _clean_editorial(doc)
+    _tidy_rpd_blanks(doc)
+    _tighten_title_before_moscow(doc)
+    _fix_fos_page_break(doc)  # «1. Цели…» начинает страницу свойством, не прокладкой
     strip_red_highlights(doc)
 
     dst.parent.mkdir(parents=True, exist_ok=True)
     doc.save(str(dst))
     print(f"[РПД] {src.name} → {dst}")
+
+
+def _tighten_title_before_moscow(doc: Document) -> None:
+    """Убирает 2 пустых абзаца перед «Москва, …»: реальные значения титула
+    (название, профиль) длиннее заглушек формы и «Москва» уезжала со страницы."""
+    paragraphs = doc.paragraphs
+    for i, p in enumerate(paragraphs):
+        if n(p.text).startswith("москва"):
+            removed = 0
+            for q in reversed(paragraphs[:i]):
+                if removed == 2:
+                    break
+                if not q.text.strip():
+                    remove_paragraph(q)
+                    removed += 1
+                else:
+                    break
+            break
+
+
+def _tidy_rpd_blanks(doc: Document) -> None:
+    """Подгоняет пустые абзацы под эталонную вёрстку.
+
+    Эталон держит ровно один пустой абзац после блоков §2 (компетенции,
+    индикаторы) и три пустых перед названием дисциплины на титуле."""
+    paragraphs = doc.paragraphs
+
+    def trim_after(idx: int, keep: int) -> None:
+        removed = 0
+        for q in paragraphs[idx + 1 :]:
+            if q.text.strip():
+                break
+            removed += 1
+            if removed > keep:
+                remove_paragraph(q)
+
+    for i, p in enumerate(paragraphs):
+        t = p.text.strip()
+        if t in ("{{p competencies }}", "{{p indicators }}"):
+            trim_after(i, keep=1)
+        elif t == "{{ index }} {{ name }}":
+            # перед названием — три пустых: реальные значения титула длиннее
+            # однострочных заглушек эталона, иначе «Москва, 2026» уезжает.
+            blanks = []
+            for q in reversed(paragraphs[:i]):
+                if q.text.strip():
+                    break
+                blanks.append(q)
+            for q in blanks[3:]:
+                remove_paragraph(q)
 
 
 def _clean_editorial(doc: Document) -> None:
@@ -313,6 +374,16 @@ def _tag_hours_table(doc: Document) -> None:
         header = " ".join(c.text for c in table.rows[0].cells)
         if "Вид учебной работы" not in header:
             continue
+        # Вторая строка шапки (vMerge-продолжение) и пустые прокладки:
+        # в эталонах их нет. Текст vMerge-ячейки видится из истока, поэтому
+        # проверяем собственное содержимое w:tc.
+        for row in list(table.rows):
+            own_texts = [
+                "".join(t.text or "" for t in tc.iter(qn("w:t"))).strip()
+                for tc in row._tr.iter(qn("w:tc"))
+            ]
+            if not any(own_texts):
+                row._tr.getparent().remove(row._tr)
         for row in table.rows:
             # «Общая трудоёмкость» в c0, а единица («зач. ед.»/«ак.ч.») — в c1
             label = n(row.cells[0].text + " " + (row.cells[1].text if len(row.cells) > 1 else ""))
@@ -321,13 +392,12 @@ def _tag_hours_table(doc: Document) -> None:
                 continue
             # колонка «Всего» = индекс 2; «в семестре» = 3 (для односеместровых равны).
             # Значения подсвечиваются жёлтым (всё, что заполнено из Базы).
+            # Аттестация — вид строчными в обеих ячейках («экзамен | экзамен»).
+            cell_tag = "{{ control_kind }}" if "{{ control" in tag else tag
             if len(row.cells) > 2:
-                set_value_tag(row.cells[2].paragraphs[0], tag)
+                set_value_tag(row.cells[2].paragraphs[0], cell_tag)
             if len(row.cells) > 3:
-                # Для аттестации в семестровой колонке — вид без номера семестра
-                # (эталон заполняет обе ячейки: «экзамен | экзамен»).
-                sem_tag = "{{ control_kind }}" if "{{ control" in tag else tag
-                set_value_tag(row.cells[3].paragraphs[0], sem_tag)
+                set_value_tag(row.cells[3].paragraphs[0], cell_tag)
         break
 
 
