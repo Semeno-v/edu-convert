@@ -109,10 +109,11 @@ class DocxtplGenerator:
             "hours_total": subject.hours_total,
             "hours_contact": subject.hours_contact,
             "hours_aud": subject.hours_aud,
-            "hours_lectures": subject.hours_lectures,
-            "hours_practical": subject.hours_practical,
+            # Нулевые виды занятий в таблице часов — прочерк (как в эталонах).
+            "hours_lectures": subject.hours_lectures or "-",
+            "hours_practical": subject.hours_practical or "-",
             "hours_lab": subject.hours_lab or "-",
-            "hours_project": subject.hours_project,
+            "hours_project": subject.hours_project or "-",
             "hours_extra_contact": max(subject.hours_contact - subject.hours_aud, 0),
             # «Часы самостоятельной работы» в форме = чистая СРС из Базы
             # (часы контроля в таблице эталона не отображаются).

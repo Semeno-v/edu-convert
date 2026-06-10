@@ -63,6 +63,19 @@ def test_subject_not_found(plan_xlsx: Path) -> None:
         repo.get_subject("Б9.Z.99")
 
 
+def test_multisemester_control_split() -> None:
+    # «12» в колонке формы контроля = семестры 1 и 2 (формат .plx-выгрузок).
+    from app.core.excel_parser import ExcelSubjectRepository
+
+    forms = ExcelSubjectRepository._control_forms(
+        ["", "", "", "12", "", ""], {"exam": 3, "credit": 4, "graded": 5}
+    )
+    assert [(f.kind, f.semester) for f in forms] == [
+        (ControlKind.EXAM, 1),
+        (ControlKind.EXAM, 2),
+    ]
+
+
 def test_program_meta_from_title_sheet(plan_xlsx: Path) -> None:
     # Направление/ОП/форма обучения — с листа «Титул» Базы (источник истины:
     # титулы старых документов часто скопированы с чужой программы).

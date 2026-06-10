@@ -361,7 +361,15 @@ class ExcelSubjectRepository:
             c = cols.get(key)
             if c is not None and c < len(row):
                 sem = as_int(row[c], default=0)
-                if sem > 0:
+                if sem > 9:
+                    # Многосеместровая форма кодируется слитно («12» — семестры
+                    # 1 и 2), как принято в выгрузках учебных планов (.plx).
+                    forms.extend(
+                        ControlForm(kind=kind, semester=int(ch))
+                        for ch in str(sem)
+                        if ch != "0"
+                    )
+                elif sem > 0:
                     forms.append(ControlForm(kind=kind, semester=sem))
         return tuple(forms)
 
