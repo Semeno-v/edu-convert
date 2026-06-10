@@ -71,8 +71,44 @@ class ExcelSubjectRepository:
         self.competencies_sheet = competencies_sheet
         self._comp_text: dict[str, str] = {}
         self._subjects: dict[str, SubjectData] = {}
+        self.direction: str | None = None
+        self.profile: str | None = None
+        self.form_study: str | None = None
+        self._load_program_meta()
         self._load_competency_texts()
         self._load()
+
+    # ------------------------------------------------------------------ #
+    #  Лист «Титул»: направление/профиль/форма обучения программы
+    # ------------------------------------------------------------------ #
+    def _load_program_meta(self) -> None:
+        try:
+            grid = _read_grid(self.path, "Титул")
+        except ExcelParseError:
+            return
+        for row in grid:
+            for value in row:
+                if not value:
+                    continue
+                for line in str(value).splitlines():
+                    line = line.strip()
+                    norm = normalize_text(line)
+                    m = re.match(r"^(\d{2}\.\d{2}\.\d{2})[\s–-]+(.+)$", line)
+                    if m and self.direction is None:
+                        self.direction = f"{m.group(1)} – {_strip_quotes(m.group(2))}"
+                    elif norm.startswith("образовательная программа:") and self.profile is None:
+                        self.profile = _strip_quotes(line.split(":", 1)[1])
+                    elif norm.startswith("форма обучения") and self.form_study is None:
+                        tail = re.sub(r"(?i)^форма обучения:?\s*", "", line).strip()
+                        if tail:
+                            self.form_study = tail.lower()  # в формах 2026 — строчными
+            # «Программа магистратуры/бакалавриата: | <профиль>» — соседняя ячейка
+            labels = [normalize_text(v) for v in row]
+            for c, lab in enumerate(labels):
+                if lab.startswith(("программа магистратуры", "программа бакалавриата", "профиль")):
+                    nxt = next((row[i] for i in range(c + 1, len(row)) if row[i]), "")
+                    if nxt and self.profile is None:
+                        self.profile = _strip_quotes(nxt)
 
     # ------------------------------------------------------------------ #
     #  Лист «Компетенции»: код → текст (для §2)
@@ -306,6 +342,9 @@ class ExcelSubjectRepository:
             per_semester=per_semester,
             department=cell(cols.get("dep_code")) or None,
             department_name=cell(cols.get("dep_name")) or None,
+            direction=self.direction,
+            profile=self.profile,
+            form_study=self.form_study,
             competence_codes=competence_codes,
             competencies=self._build_competencies(competence_codes),
         )
@@ -364,6 +403,11 @@ class ExcelSubjectRepository:
             if any((hours.lectures, hours.lab, hours.practical, hours.project, hours.ze)):
                 result.append(hours)
         return tuple(result)
+
+
+def _strip_quotes(text: str) -> str:
+    """Убирает внешние «ёлочки»/кавычки и пробелы (эталоны пишут без кавычек)."""
+    return text.strip().strip("«»\"'").strip()
 
 
 def load_repository(path: str | Path, sheet: str = "План") -> ExcelSubjectRepository:

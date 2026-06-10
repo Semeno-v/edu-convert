@@ -91,6 +91,11 @@ class SubjectData(BaseModel):
     per_semester: tuple[SemesterHours, ...] = ()
     department: str | None = None
     department_name: str | None = None
+    # Атрибуты программы с листа «Титул» Базы (одни на весь план): титул
+    # старых документов часто скопирован с чужой программы и не годится.
+    direction: str | None = None
+    profile: str | None = None
+    form_study: str | None = None
     competence_codes: tuple[str, ...] = ()
     competencies: tuple[CompetencyGroup, ...] = ()
 
@@ -130,11 +135,17 @@ class RichRun(BaseModel):
 
 
 class RichParagraph(BaseModel):
-    """Абзац: последовательность форматированных фрагментов + стиль/уровень списка."""
+    """Абзац: последовательность форматированных фрагментов + стиль/уровень списка.
+
+    ``alignment``/отступы — прямое (direct) форматирование абзаца исходника;
+    None — наследовать стиль шаблона."""
 
     runs: list[RichRun] = Field(default_factory=list)
     style: str | None = None
     list_level: int | None = None
+    alignment: str | None = None  # left|center|right|justify
+    first_line_indent_pt: float | None = None
+    left_indent_pt: float | None = None
 
     @property
     def text(self) -> str:

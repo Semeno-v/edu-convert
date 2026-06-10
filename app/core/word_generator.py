@@ -21,7 +21,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from docx.enum.text import WD_COLOR_INDEX
+from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_COLOR_INDEX
+from docx.shared import Pt
 from docxtpl import DocxTemplate
 
 from app.config import settings
@@ -116,10 +117,12 @@ class DocxtplGenerator:
             "department_name": subject.department_name or "",
             # §8 — родительские коды компетенций (ПК-1, ПК-2).
             "competence_parents": ", ".join(subject.competence_parents),
-            # Титул — из старого документа (с подсветкой в шаблоне).
-            "direction": content.direction or "",
-            "profile": content.profile or "",
-            "form_study": content.form_study or "очная",
+            # Титул: направление/профиль/форма — атрибуты программы из листа
+            # «Титул» Базы (титул старого документа часто скопирован с чужой
+            # программы); старый документ — только фолбэк.
+            "direction": subject.direction or content.direction or "",
+            "profile": subject.profile or content.profile or "",
+            "form_study": subject.form_study or content.form_study or "очная",
         }
 
         if doc_type == DocType.RPD:
@@ -138,8 +141,11 @@ class DocxtplGenerator:
                 tpl, content.get("internet_resources")
             )
         else:
+            # Индикаторы для строки «Задачи к разделу 1. (…индикатор …)» — из Базы.
+            context["fos_indicators"] = ", ".join(subject.competence_codes)
             for key in ("current_control", "interim_attestation", "gia"):
-                context[key] = self._block_to_subdoc(tpl, content.get(key))
+                # Контент ФОС в эталонах переформатирован: по ширине + отступ 1 см.
+                context[key] = self._block_to_subdoc(tpl, content.get(key), body_format=True)
         return context
 
     # ------------------------------------------------------------------ #
@@ -181,7 +187,12 @@ class DocxtplGenerator:
     #  Общие subdoc-блоки (контент из старого документа, жёлтый)
     # ------------------------------------------------------------------ #
     def _block_to_subdoc(
-        self, tpl: DocxTemplate, block: ContentBlock | None, empty_text: str = _PLACEHOLDER
+        self,
+        tpl: DocxTemplate,
+        block: ContentBlock | None,
+        empty_text: str = _PLACEHOLDER,
+        *,
+        body_format: bool = False,
     ):
         sd = tpl.new_subdoc()
         if block is None or block.is_empty:
@@ -189,7 +200,9 @@ class DocxtplGenerator:
             return sd
         for element in block.elements:
             if element.kind == ElementKind.PARAGRAPH and element.paragraph is not None:
-                self._add_paragraph(sd, element.paragraph, highlight=True)
+                self._add_paragraph(
+                    sd, element.paragraph, highlight=True, body_format=body_format
+                )
             elif element.kind == ElementKind.TABLE and element.table is not None:
                 self._add_table(sd, element.table, highlight=True)
         return sd
@@ -206,10 +219,35 @@ class DocxtplGenerator:
         run = sd.add_paragraph().add_run(text)
         self._hl(run, highlight)
 
-    def _add_paragraph(self, sd, rich: RichParagraph, *, highlight: bool) -> None:
+    _ALIGNMENTS = {
+        "left": WD_ALIGN_PARAGRAPH.LEFT,
+        "center": WD_ALIGN_PARAGRAPH.CENTER,
+        "right": WD_ALIGN_PARAGRAPH.RIGHT,
+        "justify": WD_ALIGN_PARAGRAPH.JUSTIFY,
+    }
+
+    # Формат тела ФОС в одобренных эталонах: по ширине, красная строка 1 см.
+    _BODY_FIRST_LINE_PT = 28.35
+
+    def _add_paragraph(
+        self, sd, rich: RichParagraph, *, highlight: bool, body_format: bool = False
+    ) -> None:
         # Маркер/номер списка уже синтезирован экстрактором в текст ранов —
         # стиль списка не назначаем, чтобы не получить двойной маркер.
         paragraph = sd.add_paragraph()
+        if body_format and rich.alignment != "center":
+            # Эталонный формат тела (центрированные подзаголовки сохраняются).
+            paragraph.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+            paragraph.paragraph_format.first_line_indent = Pt(self._BODY_FIRST_LINE_PT)
+        else:
+            # Прямое форматирование исходника (выравнивание/отступы) переносится;
+            # None — наследование стиля шаблона.
+            if rich.alignment in self._ALIGNMENTS:
+                paragraph.paragraph_format.alignment = self._ALIGNMENTS[rich.alignment]
+            if rich.first_line_indent_pt is not None:
+                paragraph.paragraph_format.first_line_indent = Pt(rich.first_line_indent_pt)
+            if rich.left_indent_pt is not None:
+                paragraph.paragraph_format.left_indent = Pt(rich.left_indent_pt)
         for run in rich.runs:
             r = paragraph.add_run(run.text)
             r.bold, r.italic, r.underline = run.bold, run.italic, run.underline

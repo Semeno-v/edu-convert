@@ -84,8 +84,21 @@ BLOCK_RULES: list[tuple[str, tuple[str, ...]]] = [
 ]
 
 # Блоки, существующие в ФОС: только они (и стоп-заголовки) переключают автомат
-# при doc_type=FOS; остальные ключи РПД в ФОС трактуются как контент.
+# при doc_type=FOS; заголовки с РПД-ключами (шкалы/критерии оценивания,
+# «…компетенций») в ФОС закрывают блок — их место в §8 РПД, одобренные
+# эталоны ФОС 2026 шкал и таблиц оценивания не содержат.
 _FOS_KEYS = frozenset({"self_study_questions", "current_control", "interim_attestation", "gia"})
+
+# Ненумерованные подзаголовки-маркеры в ФОС: тип вопросов определяет целевой
+# раздел (так разложены одобренные эталоны: задачи → §1, тесты → §2).
+_FOS_MARKERS: tuple[tuple[str | None, tuple[str, ...]], ...] = (
+    ("current_control", ("развернутым ответом", "развернутый ответ", "перечень задач", "открытого типа")),
+    ("interim_attestation", ("тестовых вопрос", "тестовые вопрос", "тестовых задани", "тестовые задани", "закрытого типа")),
+    (None, ("описание шкал",)),  # None → сток (контент отбрасывается)
+)
+
+# Строка оглавления: текст + таб + номер страницы («…компетенций\t8»).
+_TOC_LINE_RE = re.compile(r"\t\d{1,3}\s*$")
 
 # Пробел после номера необязателен: распознаём и «3. Тема», и «3.Тема».
 _HEADING_RE = re.compile(r"^\s*\d+(?:\.\d+)*\.?\s*\S")
@@ -190,15 +203,26 @@ class _NumberingModel:
             return chr(ord("A") + n - 1)
         return str(n)
 
-    def prefix(self, num_id: int, ilvl: int) -> str:
+    def is_decimal_dot(self, num_id: int, ilvl: int) -> bool:
+        """Десятичная нумерация вида «N.» (кандидат на формат «Задача № N: »)."""
+        fmt, lvl_text, _ = self._levels.get((num_id, ilvl), self._DEFAULT)
+        return fmt != "bullet" and lvl_text.endswith(".")
+
+    def prefix(self, num_id: int, ilvl: int, *, task_style: bool = False) -> str:
         fmt, lvl_text, start = self._levels.get((num_id, ilvl), self._DEFAULT)
         if fmt == "bullet":
             return "– "
         self._counters[(num_id, ilvl)] = self._counters.get((num_id, ilvl), start - 1) + 1
         for key in [k for k in self._counters if k[0] == num_id and k[1] > ilvl]:
             del self._counters[key]  # более глубокие уровни начинаются заново
+        if task_style:
+            # Формат одобренных эталонов ФОС: вопросы — «Задача № N: …».
+            return f"Задача № {self._render_level(num_id, ilvl)}: "
         rendered = re.sub(r"%(\d)", lambda m: self._render_level(num_id, int(m.group(1)) - 1), lvl_text)
-        return f"{rendered} " if rendered else ""
+        if not rendered:
+            return ""
+        # Варианты ответов «N)» в эталонах отделены табом, прочее — пробелом.
+        return f"{rendered}\t" if rendered.endswith(")") else f"{rendered} "
 
 
 def _list_level(paragraph: Paragraph) -> int | None:
@@ -239,6 +263,9 @@ def _iter_runs(paragraph: Paragraph):
     yield from walk(paragraph._p)
 
 
+_ALIGNMENT_NAMES = {1: "center", 2: "right", 3: "justify", 0: "left"}
+
+
 def para_to_rich(paragraph: Paragraph) -> RichParagraph:
     """Преобразует абзац python-docx в :class:`RichParagraph` (с форматированием)."""
     runs = [
@@ -254,7 +281,15 @@ def para_to_rich(paragraph: Paragraph) -> RichParagraph:
     if not runs and paragraph.text.strip():
         runs = [RichRun(text=paragraph.text)]
     style = paragraph.style.name if paragraph.style is not None else None
-    return RichParagraph(runs=runs, style=style, list_level=_list_level(paragraph))
+    pf = paragraph.paragraph_format
+    return RichParagraph(
+        runs=runs,
+        style=style,
+        list_level=_list_level(paragraph),
+        alignment=_ALIGNMENT_NAMES.get(int(pf.alignment)) if pf.alignment is not None else None,
+        first_line_indent_pt=pf.first_line_indent.pt if pf.first_line_indent is not None else None,
+        left_indent_pt=pf.left_indent.pt if pf.left_indent is not None else None,
+    )
 
 
 def table_to_rich(table: Table) -> RichTable:
@@ -430,38 +465,60 @@ class WordExtractor:
 
         current: ContentBlock | None = None
         numbering = _NumberingModel(doc)
+        # (numId, ilvl), рендерящиеся как «Задача № N: » — уровень обязателен:
+        # варианты ответов часто живут на следующем уровне того же списка.
+        task_levels: set[tuple[int, int]] = set()
+
+        def switch_to(key: str | None, title: str) -> ContentBlock:
+            if key is None or key == IGNORED_KEY:
+                return ContentBlock(key=IGNORED_KEY, title=title)  # сток
+            if key in result.blocks:
+                return result.blocks[key]
+            block = ContentBlock(key=key, title=title)
+            result.blocks[key] = block
+            return block
 
         for item in _iter_block_items(doc):
             if isinstance(item, Paragraph):
                 text = item.text.strip()
+                if _TOC_LINE_RE.search(text):
+                    continue  # строка оглавления («…\t8») — не заголовок и не контент
+                if doc_type == DocType.FOS and text and len(text) < 120:
+                    # Маркеры типа вопросов (могут быть и ненумерованными):
+                    # одобренные эталоны раскладывают задачи → §1, тесты → §2.
+                    marker = next(
+                        (
+                            key
+                            for key, kws in _FOS_MARKERS
+                            if any(kw in normalize_text(text) for kw in kws)
+                        ),
+                        "",
+                    )
+                    if marker != "":
+                        current = switch_to(marker, text)
+                        continue
                 if is_heading(text):
                     key = _heading_key(text)
                     if (
                         doc_type == DocType.FOS
                         and key is not None
-                        and key != IGNORED_KEY
                         and key not in _FOS_KEYS
                     ):
-                        # РПД-блоки в ФОС не используются: заголовки вроде
-                        # «2. Описание шкал … компетенций» («компетенц» → ключ РПД)
-                        # уводили критерии оценивания в выбрасываемый блок —
-                        # теперь они остаются контентом текущего блока ФОС.
-                        key = None
+                        # Заголовок с РПД-ключом в ФОС (шкалы, критерии,
+                        # «…компетенций») — его содержимому в ФОС 2026 не место
+                        # (это источник §8 РПД): закрываем блок, контент в сток.
+                        key = IGNORED_KEY
                     if key == IGNORED_KEY:
                         # Стоп-заголовок: закрывает текущий блок (иначе заголовки
                         # следующего раздела исходника утекают в перенесённый
                         # контент), а его собственный контент не сохраняется.
-                        current = ContentBlock(key=IGNORED_KEY, title=text)
+                        current = switch_to(None, text)
                         continue
                     if key is not None:
                         # Новый блок начинается ТОЛЬКО на распознанном заголовке;
                         # повторный ключ — продолжаем (merge) тот же блок, чтобы не
-                        # терять контент при дублирующихся/оглавлениях-заголовках.
-                        if key in result.blocks:
-                            current = result.blocks[key]
-                        else:
-                            current = ContentBlock(key=key, title=text)
-                            result.blocks[key] = current
+                        # терять контент при дублирующихся заголовках.
+                        current = switch_to(key, text)
                         continue
                     # Нумерованный, но нераспознанный заголовок (например, пункт
                     # списка «1. Дайте определение…») — это контент текущего блока,
@@ -476,7 +533,15 @@ class WordExtractor:
                     if props is not None and rich.runs:
                         # Автонумерация Word при переносе теряется — синтезируем
                         # видимый номер/маркер в текст («1. », «– »).
-                        rich.runs.insert(0, RichRun(text=numbering.prefix(*props)))
+                        task = False
+                        if doc_type == DocType.FOS and current.key != IGNORED_KEY:
+                            # Нумерованные вопросы в ФОС — формат эталона
+                            # «Задача № N: …»; решение по первому абзацу уровня.
+                            if props not in task_levels and "?" in text and numbering.is_decimal_dot(*props):
+                                task_levels.add(props)
+                            task = props in task_levels
+                        rich.runs[0].text = rich.runs[0].text.lstrip()
+                        rich.runs.insert(0, RichRun(text=numbering.prefix(*props, task_style=task)))
                     current.elements.append(
                         ContentElement(kind=ElementKind.PARAGRAPH, paragraph=rich)
                     )

@@ -61,3 +61,15 @@ def test_subject_not_found(plan_xlsx: Path) -> None:
     assert repo.has_subject("Б9.Z.99") is False
     with pytest.raises(SubjectNotFoundError):
         repo.get_subject("Б9.Z.99")
+
+
+def test_program_meta_from_title_sheet(plan_xlsx: Path) -> None:
+    # Направление/ОП/форма обучения — с листа «Титул» Базы (источник истины:
+    # титулы старых документов часто скопированы с чужой программы).
+    repo = load_repository(plan_xlsx)
+    assert repo.direction == "09.04.03 – Прикладная информатика"
+    assert repo.profile == "Цифровые технологии в управлении"  # без «ёлочек»
+    assert repo.form_study == "очная"  # приведена к строчным
+    subject = repo.get_subject("Б1.О.01")
+    assert subject.direction == "09.04.03 – Прикладная информатика"
+    assert subject.profile == "Цифровые технологии в управлении"

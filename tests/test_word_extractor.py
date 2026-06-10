@@ -241,14 +241,17 @@ def test_stop_headings_close_block(extractor: WordExtractor, tmp_path: Path) -> 
     assert main is not None and not main.is_empty   # литература ловится своим правилом
 
 
-def test_fos_keeps_assessment_scales_in_block(extractor: WordExtractor, tmp_path: Path) -> None:
-    # В ФОС «2. Описание шкал оценивания…» не уводит автомат в блок assessment —
-    # критерии остаются в текущем блоке (иначе терялись, как в Б1.О.01).
+def test_fos_drops_assessment_scales(extractor: WordExtractor, tmp_path: Path) -> None:
+    # Одобренные эталоны ФОС 2026 не содержат шкал/таблиц оценивания (их место —
+    # §8 РПД): «Описание шкал…» закрывает блок, контент шкал отбрасывается.
     doc = Document()
     doc.add_paragraph("1.2 Контрольные вопросы для промежуточной аттестации")
-    doc.add_paragraph("Что такое наука?")
+    doc.add_paragraph("Содержательный вопрос без знака.")
     doc.add_paragraph("2. Описание шкал оценивания степени сформированности компетенций")
     doc.add_paragraph("Зачтено — навыки сформированы.")
+    t = doc.add_table(rows=1, cols=2)
+    t.cell(0, 0).text = "Оценка"
+    t.cell(0, 1).text = "Отлично"
     path = tmp_path / "fos_scales.docx"
     doc.save(str(path))
 
@@ -256,10 +259,11 @@ def test_fos_keeps_assessment_scales_in_block(extractor: WordExtractor, tmp_path
     block = content.get("interim_attestation")
     assert block is not None
     text = " ".join(e.paragraph.text for e in block.elements if e.paragraph)
-    assert "Что такое наука?" in text
-    assert "Описание шкал оценивания" in text     # заголовок перенесён как контент
-    assert "навыки сформированы" in text          # критерии не потеряны
-    assert "competencies" not in content.blocks   # РПД-ключ в ФОС не переключает
+    assert "Содержательный вопрос" in text
+    assert "Описание шкал" not in text                    # заголовок не переносится
+    assert "навыки сформированы" not in text              # контент шкал отброшен
+    assert all(e.table is None for e in block.elements)   # таблица шкал не попала
+    assert "competencies" not in content.blocks
 
     # В РПД РПД-ключи работают как раньше («компетенц» → свой блок).
     rpd = extractor.extract(path, DocType.RPD)
@@ -303,6 +307,8 @@ def _numbered(doc, text: str, num_id: int = 5, ilvl: int = 0):
 
 
 def test_extract_synthesizes_list_numbers(extractor: WordExtractor, tmp_path: Path) -> None:
+    # В ФОС нумерованные вопросы получают формат одобренных эталонов
+    # («Задача № N: …»); в РПД — обычный синтез номера («N. …»).
     doc = Document()
     doc.add_paragraph("1.1 Контрольные вопросы для текущего контроля")
     _numbered(doc, "Что такое наука?")
@@ -314,7 +320,13 @@ def test_extract_synthesizes_list_numbers(extractor: WordExtractor, tmp_path: Pa
     block = content.get("current_control")
     assert block is not None
     texts = [e.paragraph.text for e in block.elements if e.paragraph]
-    assert texts == ["1. Что такое наука?", "2. Что такое знание?"]
+    assert texts == ["Задача № 1: Что такое наука?", "Задача № 2: Что такое знание?"]
+
+    rpd = extractor.extract(path, DocType.RPD)
+    rpd_block = rpd.get("current_control")
+    assert rpd_block is not None
+    rpd_texts = [e.paragraph.text for e in rpd_block.elements if e.paragraph]
+    assert rpd_texts == ["1. Что такое наука?", "2. Что такое знание?"]
 
 
 def test_numbering_model_formats() -> None:
@@ -328,8 +340,9 @@ def test_numbering_model_formats() -> None:
     }
     nm._counters = {}
     assert nm.prefix(7, 0) == "– "                      # маркер
-    assert [nm.prefix(8, 0) for _ in range(2)] == ["1) ", "2) "]
-    assert nm.prefix(9, 0) == "a) "                     # lowerLetter
+    # варианты «N)» в эталонах отделяются табом
+    assert [nm.prefix(8, 0) for _ in range(2)] == ["1)\t", "2)\t"]
+    assert nm.prefix(9, 0) == "a)\t"                    # lowerLetter
     assert nm.prefix(99, 0) == "1. "                    # неизвестный numId — decimal
 
 

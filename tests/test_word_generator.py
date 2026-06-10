@@ -212,6 +212,31 @@ def test_generate_fos(
     assert "Б1.О.01" in xml  # индекс на титуле
 
 
+def test_fos_body_format_and_indicators(
+    generator: DocxtplGenerator, subject: SubjectData, tmp_path: Path
+) -> None:
+    # Контент ФОС — в эталонном формате тела (по ширине, красная строка 1 см);
+    # строка «Задачи к разделу 1…» содержит индикаторы из Базы.
+    block = ContentBlock(
+        key="current_control", title="1.1",
+        elements=[ContentElement(
+            kind=ElementKind.PARAGRAPH,
+            paragraph=RichParagraph(runs=[RichRun(text="Задача № 1: Что такое X?")]),
+        )],
+    )
+    cb = ContentBlocks(index="Б1.О.01", blocks={"current_control": block})
+    out = tmp_path / "fos_fmt.docx"
+    generator.generate(settings.fos_template, out, subject, cb, DocType.FOS)
+
+    doc = Document(str(out))
+    target = next(p for p in doc.paragraphs if "Что такое X?" in p.text)
+    assert target.paragraph_format.alignment is not None
+    assert "JUSTIFY" in str(target.paragraph_format.alignment)
+    assert round(target.paragraph_format.first_line_indent.pt, 1) == 28.4
+    text = "\n".join(p.text for p in doc.paragraphs)
+    assert "Задачи к разделу 1. (оцениваемая компетенция и индикатор УК-1-И-1, ПК-2-И-1)" in text
+
+
 def _nested_block_in_wt(xml: str) -> list[str]:
     """Имена дочерних элементов внутри текстовых узлов w:t (валидный OOXML — пусто)."""
     from lxml import etree
