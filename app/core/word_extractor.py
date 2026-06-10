@@ -81,6 +81,10 @@ BLOCK_RULES: list[tuple[str, tuple[str, ...]]] = [
     (IGNORED_KEY, ("учебно-методическое", "рекомендуемая литература", "дополнительные средства обучения")),
 ]
 
+# Блоки, существующие в ФОС: только они (и стоп-заголовки) переключают автомат
+# при doc_type=FOS; остальные ключи РПД в ФОС трактуются как контент.
+_FOS_KEYS = frozenset({"self_study_questions", "current_control", "interim_attestation", "gia"})
+
 # Пробел после номера необязателен: распознаём и «3. Тема», и «3.Тема».
 _HEADING_RE = re.compile(r"^\s*\d+(?:\.\d+)*\.?\s*\S")
 _MAX_HEADING_LEN = 200
@@ -430,6 +434,17 @@ class WordExtractor:
                 text = item.text.strip()
                 if is_heading(text):
                     key = _heading_key(text)
+                    if (
+                        doc_type == DocType.FOS
+                        and key is not None
+                        and key != IGNORED_KEY
+                        and key not in _FOS_KEYS
+                    ):
+                        # РПД-блоки в ФОС не используются: заголовки вроде
+                        # «2. Описание шкал … компетенций» («компетенц» → ключ РПД)
+                        # уводили критерии оценивания в выбрасываемый блок —
+                        # теперь они остаются контентом текущего блока ФОС.
+                        key = None
                     if key == IGNORED_KEY:
                         # Стоп-заголовок: закрывает текущий блок (иначе заголовки
                         # следующего раздела исходника утекают в перенесённый

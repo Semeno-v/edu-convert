@@ -241,6 +241,31 @@ def test_stop_headings_close_block(extractor: WordExtractor, tmp_path: Path) -> 
     assert main is not None and not main.is_empty   # литература ловится своим правилом
 
 
+def test_fos_keeps_assessment_scales_in_block(extractor: WordExtractor, tmp_path: Path) -> None:
+    # В ФОС «2. Описание шкал оценивания…» не уводит автомат в блок assessment —
+    # критерии остаются в текущем блоке (иначе терялись, как в Б1.О.01).
+    doc = Document()
+    doc.add_paragraph("1.2 Контрольные вопросы для промежуточной аттестации")
+    doc.add_paragraph("Что такое наука?")
+    doc.add_paragraph("2. Описание шкал оценивания степени сформированности компетенций")
+    doc.add_paragraph("Зачтено — навыки сформированы.")
+    path = tmp_path / "fos_scales.docx"
+    doc.save(str(path))
+
+    content = extractor.extract(path, DocType.FOS)
+    block = content.get("interim_attestation")
+    assert block is not None
+    text = " ".join(e.paragraph.text for e in block.elements if e.paragraph)
+    assert "Что такое наука?" in text
+    assert "Описание шкал оценивания" in text     # заголовок перенесён как контент
+    assert "навыки сформированы" in text          # критерии не потеряны
+    assert "competencies" not in content.blocks   # РПД-ключ в ФОС не переключает
+
+    # В РПД РПД-ключи работают как раньше («компетенц» → свой блок).
+    rpd = extractor.extract(path, DocType.RPD)
+    assert "competencies" in rpd.blocks
+
+
 def test_title_meta_from_title_table(extractor: WordExtractor, tmp_path: Path) -> None:
     # Титул ФОС: направление/программа/форма лежат в таблице «метка | значение».
     doc = Document()
