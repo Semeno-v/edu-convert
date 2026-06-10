@@ -163,6 +163,45 @@ def test_competencies_built_from_base(
     assert "ПК-2" in xml                           # родительский код в §8
 
 
+def test_assessment_outcomes_credit_grade() -> None:
+    # Уровень «Зачет» (без «зачтено») распознаётся как лучший; «Не зачтено» — нет.
+    def cell(t: str) -> RichTableCell:
+        return RichTableCell(paragraphs=[RichParagraph(runs=[RichRun(text=t)])])
+    rows = [
+        RichTableRow(cells=[cell("Оценка"), cell("Формулировка")]),
+        RichTableRow(cells=[cell("Зачет"), cell("Обучающийся умеет X.")]),
+        RichTableRow(cells=[cell(""), cell("Обучающийся знает Y.")]),  # vMerge
+        RichTableRow(cells=[cell("Не зачтено"), cell("Не умеет X.")]),
+    ]
+    block = ContentBlock(key="assessment", title="8.1",
+                         elements=[ContentElement(kind=ElementKind.TABLE, table=RichTable(rows=rows))])
+    out = _assessment_outcomes(block)
+    assert out["5"] == "Обучающийся умеет X\aОбучающийся знает Y"
+    assert "Не умеет" not in out["2"]
+
+
+def test_internet_resources_filter_ebs(
+    generator: DocxtplGenerator, subject: SubjectData, tmp_path: Path
+) -> None:
+    # §4.3: дубли ЭБС из §5 отфильтровываются, настоящие ресурсы — списком.
+    def cell(t: str) -> RichTableCell:
+        return RichTableCell(paragraphs=[RichParagraph(runs=[RichRun(text=t)])])
+    table = RichTable(rows=[
+        RichTableRow(cells=[cell("№"), cell("Наименование"), cell("Адрес доступа"), cell("Доступ")]),
+        RichTableRow(cells=[cell("1"), cell("ЭБС Znanium"), cell("https://znanium.com"), cell("Договор")]),
+        RichTableRow(cells=[cell("2"), cell("Команда в MS Teams «Курс»"), cell("https://teams.microsoft.com"), cell("Бесплатно")]),
+    ])
+    cb = ContentBlocks(blocks={"internet_resources": ContentBlock(
+        key="internet_resources", title="4.2",
+        elements=[ContentElement(kind=ElementKind.TABLE, table=table)])})
+    out = tmp_path / "res.docx"
+    generator.generate(settings.rpd_template, out, subject, cb, DocType.RPD)
+    doc = Document(str(out))
+    text = "\n".join(p.text for p in doc.paragraphs)
+    assert "1. Команда в MS Teams «Курс». https://teams.microsoft.com. Бесплатно." in text
+    assert "znanium" not in text.lower()
+
+
 def test_assessment_outcomes_by_grade() -> None:
     # Формат эталонов: формулировки лучшего уровня группируются по глаголу
     # («Знает …; …» / «Умеет …») и тиражируются на все уровни.

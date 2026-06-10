@@ -270,6 +270,28 @@ def test_fos_drops_assessment_scales(extractor: WordExtractor, tmp_path: Path) -
     assert "competencies" in rpd.blocks
 
 
+def test_styled_headings_without_numbers(extractor: WordExtractor, tmp_path: Path) -> None:
+    # Заголовки без видимых номеров (автонумерация в стиле на базе Heading)
+    # распознаются по цепочке стилей — иначе блоки таких РПД не извлекались.
+    doc = Document()
+    styles = doc.styles
+    from docx.enum.style import WD_STYLE_TYPE
+
+    h = styles.add_style("Кастомный заголовок", WD_STYLE_TYPE.PARAGRAPH)
+    h.base_style = styles["Heading 2"]
+    p1 = doc.add_paragraph("Основная литература"); p1.style = h
+    doc.add_paragraph("Иванов И.И. Книга.")
+    p2 = doc.add_paragraph("Дополнительная литература"); p2.style = h
+    doc.add_paragraph("Петров П.П. Другая книга.")
+    path = tmp_path / "styled.docx"
+    doc.save(str(path))
+
+    content = extractor.extract(path, DocType.RPD)
+    main, extra = content.get("literature_main"), content.get("literature_extra")
+    assert main is not None and "Иванов" in main.elements[0].paragraph.text
+    assert extra is not None and "Петров" in extra.elements[0].paragraph.text
+
+
 def test_title_meta_from_title_table(extractor: WordExtractor, tmp_path: Path) -> None:
     # Титул ФОС: направление/программа/форма лежат в таблице «метка | значение».
     doc = Document()

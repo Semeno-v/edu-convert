@@ -86,6 +86,7 @@ class DocxtplGenerator:
             # Именно tpl.docx: get_docx() перезагрузил бы исходный шаблон,
             # затерев отрендеренное дерево (init_docx при is_rendered).
             _fill_topics_table(tpl.docx, content.get("thematic_plan"), subject)
+            _apply_body_justify(tpl.docx)
         out_path.parent.mkdir(parents=True, exist_ok=True)
         tpl.save(str(out_path))
         return out_path
@@ -144,9 +145,12 @@ class DocxtplGenerator:
             context["indicators"] = self._indicators_subdoc(tpl, subject)
             context["literature_main"] = self._literature_subdoc(tpl, content.get("literature_main"))
             context["literature_extra"] = self._literature_subdoc(tpl, content.get("literature_extra"))
-            # §4.3 в одобренных эталонах РПД — «Не предусмотрено.»: ссылки
-            # исходников дублируют статичные §5/§6, таблицы не переносятся.
-            context["internet_resources"] = self._block_to_subdoc(tpl, None, font_size_pt=12)
+            # §4.3: только настоящие интернет-ресурсы (MS Teams и т.п.) —
+            # ссылки на ЭБС дублируют статичный §5 и отфильтровываются
+            # (эталоны: «Не предусмотрено.» либо нумерованный список).
+            context["internet_resources"] = self._internet_resources_subdoc(
+                tpl, content.get("internet_resources")
+            )
         else:
             # Индикаторы для строки «Задачи к разделу 1. (…индикатор …)» — из Базы.
             context["fos_indicators"] = ", ".join(subject.competence_codes)
@@ -192,6 +196,44 @@ class DocxtplGenerator:
             return sd
         for i, cite in enumerate(citations, 1):
             self._add_text(sd, f"{i}. {cite}", highlight=True, font_size_pt=12)
+        return sd
+
+    # ЭБС, уже перечисленные в статичном §5 шаблона: их адреса в §4.3 — дубли.
+    _EBS_MARKERS = (
+        "znanium", "biblioclub", "urait", "юрайт", "book.ru", "lanbook",
+        "grebennikon", "ibooks", "мтс линк", "линк курсы",
+    )
+
+    def _internet_resources_subdoc(self, tpl: DocxTemplate, block: ContentBlock | None):
+        """§4.3: нумерованный список настоящих интернет-ресурсов исходника."""
+        sd = tpl.new_subdoc()
+        items: list[str] = []
+        for element in (block.elements if block else []):
+            if element.kind == ElementKind.TABLE and element.table is not None:
+                for row in element.table.rows:
+                    cells = [_cell_text(c).strip() for c in row.cells]
+                    texts = [c for c in cells if c and c not in ("-",)]
+                    if not texts:
+                        continue
+                    joined_l = " ".join(texts).lower()
+                    if "наименование" in joined_l and ("адрес" in joined_l or "доступ" in joined_l):
+                        continue  # шапка таблицы
+                    if any(m in joined_l for m in self._EBS_MARKERS):
+                        continue  # дубль ЭБС из §5
+                    if not any(ch.isalpha() for ch in joined_l):
+                        continue
+                    body = [c for c in texts if not re.fullmatch(r"\d+\.?", c)]  # «№ п/п»
+                    cite = re.sub(r"\.\s*\.", ".", ". ".join(body))
+                    items.append(cite if cite.endswith(".") else cite + ".")
+            elif element.kind == ElementKind.PARAGRAPH and element.paragraph is not None:
+                text = element.paragraph.text.strip()
+                if "http" in text.lower() and not any(m in text.lower() for m in self._EBS_MARKERS):
+                    items.append(text)
+        if not items:
+            self._add_text(sd, _PLACEHOLDER, highlight=True, font_size_pt=12)
+            return sd
+        for i, item in enumerate(items, 1):
+            self._add_text(sd, f"{i}. {item}", highlight=True, font_size_pt=12)
         return sd
 
     # ------------------------------------------------------------------ #
@@ -348,9 +390,10 @@ def _assessment_outcomes(block: ContentBlock | None) -> dict[str, str]:
         if grade and requirement and requirement != grade:
             grades.setdefault(grade, []).append(requirement)
 
+    # Лучший уровень: «отлично» / «зачтено» / «зачет» — но не «не зачтено».
     best = next(
-        (grades[g] for key in ("отл", "зачт") for g in grades
-         if key in g and "не зачт" not in g),
+        (grades[g] for key in ("отл", "зач") for g in grades
+         if key in g and not g.startswith("не")),
         None,
     )
     if not best:
@@ -556,6 +599,43 @@ def _fill_topics_table(docx, block: ContentBlock | None, subject: SubjectData) -
         *(_fmt_hours(totals[key]) if totals[key] else "-" for key in order),
         _fmt_hours(sum(totals.values())),
     ])
+
+
+def _apply_body_justify(docx) -> None:
+    """Выравнивание по ширине для всего тела РПД (требование кафедры).
+
+    Не трогаются: титульный лист (до «Москва, …» включительно), центрированные
+    и выровненные вправо абзацы, шапки таблиц §3 («Вид учебной работы»,
+    «Темы (разделы)» до строки с номерами колонок).
+    """
+    untouched = (None, WD_ALIGN_PARAGRAPH.LEFT)
+    body_started = False
+    for p in docx.paragraphs:
+        if not body_started:
+            if normalize_text(p.text).startswith("москва"):
+                body_started = True
+            continue
+        if p.text.strip() and p.paragraph_format.alignment in untouched:
+            p.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+
+    for table in docx.tables:
+        if not table.rows:
+            continue
+        header = normalize_text(" ".join(c.text for c in table.rows[0].cells))
+        skip = 0
+        if "вид учебной работы" in header:
+            skip = 1
+        elif "темы (разделы)" in header:
+            skip = next(
+                (i + 1 for i, r in enumerate(table.rows)
+                 if r.cells[0].text.strip() == "1" and r.cells[-1].text.strip() == "7"),
+                3,
+            )
+        for row in table.rows[skip:]:
+            for cell in row.cells:
+                for p in cell.paragraphs:
+                    if p.text.strip() and p.paragraph_format.alignment in untouched:
+                        p.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
 
 
 def _dot(text: str) -> str:

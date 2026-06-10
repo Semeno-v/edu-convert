@@ -122,6 +122,30 @@ def is_heading(text: str) -> bool:
     return bool(_HEADING_RE.match(stripped))
 
 
+def _has_heading_style(paragraph: Paragraph) -> bool:
+    """Заголовок без видимого номера: нумерация/уровень структуры — в стиле.
+
+    В части исходников номера разделов даёт Word-автонумерация стилей
+    («Основная литература» со стилем на базе Heading 2) — текст абзаца числа
+    не содержит, и текстовая эвристика такие заголовки не видит. Прямой
+    ``numPr`` самого абзаца (нумерованные списки контента) сюда не входит.
+    """
+    style = paragraph.style
+    seen: set[str] = set()
+    while style is not None and style.style_id not in seen:
+        seen.add(style.style_id)
+        name = style.name or ""
+        if name.startswith(("Heading", "Заголовок")):
+            return True
+        pPr = style.element.find(qn("w:pPr"))
+        if pPr is not None and (
+            pPr.find(qn("w:numPr")) is not None or pPr.find(qn("w:outlineLvl")) is not None
+        ):
+            return True
+        style = style.base_style
+    return False
+
+
 # --------------------------------------------------------------------------- #
 #  Преобразование python-docx → IR
 # --------------------------------------------------------------------------- #
@@ -497,7 +521,9 @@ class WordExtractor:
                     if marker != "":
                         current = switch_to(marker, text)
                         continue
-                if is_heading(text):
+                if is_heading(text) or (
+                    text and len(text) <= _MAX_HEADING_LEN and _has_heading_style(item)
+                ):
                     key = _heading_key(text)
                     if (
                         doc_type == DocType.FOS
