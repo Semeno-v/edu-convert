@@ -76,6 +76,23 @@ def set_label_value(paragraph: Paragraph, label: str, tag: str) -> None:
     hl_run(paragraph.add_run(tag))
 
 
+def set_label_value_underlined(paragraph: Paragraph, label: str, tag: str) -> None:
+    """Титульная строка формы: метка + подчёркнутое значение (жёлтое) +
+    подчёркнутый таб — «нижняя линия» до табстопа, как в исходной форме."""
+    for run in list(paragraph.runs):
+        run._element.getparent().remove(run._element)
+    paragraph.add_run(label)
+    value = paragraph.add_run(tag)
+    value.underline = True
+    hl_run(value)
+    tail = paragraph.add_run("\t")
+    tail.underline = True
+
+
+def remove_paragraph(paragraph: Paragraph) -> None:
+    paragraph._element.getparent().remove(paragraph._element)
+
+
 def insert_after(paragraph: Paragraph, text: str) -> Paragraph:
     new_p = OxmlElement("w:p")
     paragraph._p.addnext(new_p)
@@ -236,6 +253,7 @@ def _tag_hours_table(doc: Document) -> None:
 def tag_fos(src: Path, dst: Path) -> None:
     doc = Document(str(src))
     gia_heading: Paragraph | None = None
+    to_remove: list[Paragraph] = []
 
     for p in doc.paragraphs:
         t = n(p.text)
@@ -244,33 +262,67 @@ def tag_fos(src: Path, dst: Path) -> None:
         if t == "код наименование":
             set_value_tag(p, "{{ index }} {{ name }}")
         elif t.startswith("по направлению подготовки"):
-            set_label_value(p, "по направлению подготовки ", "{{ direction }}")
+            set_label_value_underlined(p, "по направлению подготовки ", "{{ direction }}")
         elif t.startswith("направленности"):
-            set_label_value(p, "направленности (профиля) ", "{{ profile }}")
+            set_label_value_underlined(p, "направленности (профиля) ", "{{ profile }}")
         elif t.startswith("форма обучения"):
-            set_label_value(p, "форма обучения ", "{{ form_study }}")
+            set_label_value_underlined(p, "форма обучения ", "{{ form_study }}")
+        # Статики формы «Примерный перечень задач» / «Примерный состав тестовых
+        # вопросов…» сохраняются (так в одобренных эталонах) — контент после них.
         elif "примерный перечень задач" in t:
-            set_text(p, "{{p current_control }}")  # subdoc — см. комментарий в tag_rpd
+            pass  # статика формы, контент вставляется после «Задачи к разделу 1…»
         elif "примерный состав тестовых вопросов" in t:
-            set_text(p, "{{p interim_attestation }}")
-        elif t.startswith("задачи к разделу") or t.startswith("задача") or t == "ответ:":
-            clear(p)
+            insert_after(p, "{{p interim_attestation }}")
+        elif t.startswith("задачи к разделу 1"):
+            # Первая строка формы остаётся: индикаторы — из Базы (жёлтым),
+            # разбивку по разделам уточняет методист. Контент задач — после неё.
+            set_label_value(p, "Задачи к разделу 1. (оцениваемая компетенция и индикатор ", "{{ fos_indicators }}")
+            p.add_run(")")
+            insert_after(p, "{{p current_control }}")
+        elif t.startswith("задачи к разделу"):
+            to_remove.append(p)  # вторая строка-пример формы
+        elif t.startswith("задача") or t == "ответ:":
+            to_remove.append(p)  # примеры формы: удаляем абзац целиком, не оставляя пустот
         elif "обязательно с ответами" in t:
-            clear(p)
+            to_remove.append(p)
         elif t.startswith("заседания кафедры"):
-            set_label_value(p, "заседания кафедры ", "{{ department_name }}")
+            set_label_value_underlined(p, "заседания кафедры ", "{{ department_name }}")
         elif "методов в экономике и управлении" in t:
-            clear(p)  # хвост захардкоженного названия кафедры
+            to_remove.append(p)  # хвост захардкоженного названия кафедры (вторая строка)
         elif "государственной итоговой" in t:
             gia_heading = p
 
     if gia_heading is not None:
         insert_after(gia_heading, "{{p gia }}")
+    for p in to_remove:
+        remove_paragraph(p)
+    _tighten_fos_title(doc)
 
     strip_red_highlights(doc)
     dst.parent.mkdir(parents=True, exist_ok=True)
     doc.save(str(dst))
     print(f"[ФОС] {src.name} → {dst}")
+
+
+def _tighten_fos_title(doc: Document) -> None:
+    """Убирает 2 пустых абзаца перед «Москва, …» на титуле ФОС.
+
+    Реальные значения (название дисциплины, профиль) длиннее однострочных
+    заглушек формы и переносятся — без запаса «Москва, 2026» уезжает на
+    следующую страницу."""
+    paragraphs = doc.paragraphs
+    for i, p in enumerate(paragraphs):
+        if n(p.text).startswith("москва"):
+            removed = 0
+            for q in reversed(paragraphs[:i]):
+                if removed == 2:
+                    break
+                if not q.text.strip():
+                    remove_paragraph(q)
+                    removed += 1
+                else:
+                    break
+            break
 
 
 def main() -> None:
