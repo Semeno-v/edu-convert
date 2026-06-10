@@ -212,6 +212,53 @@ def test_stop_headings_close_block(extractor: WordExtractor, tmp_path: Path) -> 
 
 
 # --------------------------------------------------------------------------- #
+#  Синтез номеров автонумерации (numbering.xml теряется при переносе)
+# --------------------------------------------------------------------------- #
+def _numbered(doc, text: str, num_id: int = 5, ilvl: int = 0):
+    p = doc.add_paragraph(text)
+    numPr = OxmlElement("w:numPr")
+    lvl = OxmlElement("w:ilvl")
+    lvl.set(qn("w:val"), str(ilvl))
+    nid = OxmlElement("w:numId")
+    nid.set(qn("w:val"), str(num_id))
+    numPr.append(lvl)
+    numPr.append(nid)
+    p._p.get_or_add_pPr().append(numPr)
+    return p
+
+
+def test_extract_synthesizes_list_numbers(extractor: WordExtractor, tmp_path: Path) -> None:
+    doc = Document()
+    doc.add_paragraph("1.1 Контрольные вопросы для текущего контроля")
+    _numbered(doc, "Что такое наука?")
+    _numbered(doc, "Что такое знание?")
+    path = tmp_path / "numbered.docx"
+    doc.save(str(path))
+
+    content = extractor.extract(path, DocType.FOS)
+    block = content.get("current_control")
+    assert block is not None
+    texts = [e.paragraph.text for e in block.elements if e.paragraph]
+    assert texts == ["1. Что такое наука?", "2. Что такое знание?"]
+
+
+def test_numbering_model_formats() -> None:
+    from app.core.word_extractor import _NumberingModel
+
+    nm = _NumberingModel.__new__(_NumberingModel)
+    nm._levels = {
+        (7, 0): ("bullet", "", 1),
+        (8, 0): ("decimal", "%1)", 1),
+        (9, 0): ("lowerLetter", "%1)", 1),
+    }
+    nm._counters = {}
+    assert nm.prefix(7, 0) == "– "                      # маркер
+    assert [nm.prefix(8, 0) for _ in range(2)] == ["1) ", "2) "]
+    assert nm.prefix(9, 0) == "a) "                     # lowerLetter
+    assert nm.prefix(99, 0) == "1. "                    # неизвестный numId — decimal
+
+
+# --------------------------------------------------------------------------- #
 #  Объединённые ячейки: текст не дублируется, размах сохраняется
 # --------------------------------------------------------------------------- #
 def test_table_to_rich_preserves_merges(tmp_path: Path) -> None:

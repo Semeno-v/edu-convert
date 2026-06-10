@@ -21,6 +21,7 @@ from pathlib import Path
 
 from docx import Document
 from docx.document import Document as DocxDocument
+from docx.opc.constants import RELATIONSHIP_TYPE as RT
 from docx.oxml.ns import qn
 from docx.oxml.table import CT_Tbl
 from docx.oxml.text.paragraph import CT_P
@@ -118,6 +119,80 @@ def _iter_block_items(parent: DocxDocument | _Cell):
             yield Paragraph(child, parent)
         elif isinstance(child, CT_Tbl):
             yield Table(child, parent)
+
+
+def _num_props(paragraph: Paragraph) -> tuple[int, int] | None:
+    """(numId, ilvl) автонумерации абзаца или None (numId=0 — нумерация снята)."""
+    pPr = paragraph._p.pPr
+    if pPr is None:
+        return None
+    numPr = pPr.find(qn("w:numPr"))
+    if numPr is None:
+        return None
+    num_el = numPr.find(qn("w:numId"))
+    nid = as_int(num_el.get(qn("w:val"))) if num_el is not None else None
+    if not nid:
+        return None
+    ilvl_el = numPr.find(qn("w:ilvl"))
+    lvl = as_int(ilvl_el.get(qn("w:val"))) if ilvl_el is not None else 0
+    return nid, lvl or 0
+
+
+class _NumberingModel:
+    """Best-effort синтез видимых номеров автонумерации Word.
+
+    Автонумерация живёт в ``numbering.xml`` и при переносе абзацев в другой
+    документ теряется (вопросы «1.–10.» становились безномерными). Модель
+    читает определения уровней (формат, шаблон ``lvlText``, старт) и ведёт
+    счётчики по (numId, ilvl), отдавая текстовый префикс «1. », «a) », «– ».
+    """
+
+    _DEFAULT = ("decimal", "%1.", 1)
+
+    def __init__(self, doc: DocxDocument) -> None:
+        self._levels: dict[tuple[int, int], tuple[str, str, int]] = {}
+        self._counters: dict[tuple[int, int], int] = {}
+        try:
+            root = doc.part.part_related_by(RT.NUMBERING).element
+        except (KeyError, AttributeError):
+            return
+        abstract: dict[int, dict[int, tuple[str, str, int]]] = {}
+        for an in root.findall(qn("w:abstractNum")):
+            levels: dict[int, tuple[str, str, int]] = {}
+            for lvl in an.findall(qn("w:lvl")):
+                fmt_el, txt_el, start_el = (lvl.find(qn(t)) for t in ("w:numFmt", "w:lvlText", "w:start"))
+                levels[int(lvl.get(qn("w:ilvl")))] = (
+                    fmt_el.get(qn("w:val")) if fmt_el is not None else "decimal",
+                    txt_el.get(qn("w:val")) if txt_el is not None else "%1.",
+                    as_int(start_el.get(qn("w:val"))) or 1 if start_el is not None else 1,
+                )
+            abstract[int(an.get(qn("w:abstractNumId")))] = levels
+        for num in root.findall(qn("w:num")):
+            aref = num.find(qn("w:abstractNumId"))
+            if aref is None:
+                continue
+            nid = int(num.get(qn("w:numId")))
+            for ilvl, spec in abstract.get(int(aref.get(qn("w:val"))), {}).items():
+                self._levels[(nid, ilvl)] = spec
+
+    def _render_level(self, num_id: int, level: int) -> str:
+        fmt, _, start = self._levels.get((num_id, level), self._DEFAULT)
+        n = self._counters.get((num_id, level), start)
+        if fmt == "lowerLetter" and 1 <= n <= 26:
+            return chr(ord("a") + n - 1)
+        if fmt == "upperLetter" and 1 <= n <= 26:
+            return chr(ord("A") + n - 1)
+        return str(n)
+
+    def prefix(self, num_id: int, ilvl: int) -> str:
+        fmt, lvl_text, start = self._levels.get((num_id, ilvl), self._DEFAULT)
+        if fmt == "bullet":
+            return "– "
+        self._counters[(num_id, ilvl)] = self._counters.get((num_id, ilvl), start - 1) + 1
+        for key in [k for k in self._counters if k[0] == num_id and k[1] > ilvl]:
+            del self._counters[key]  # более глубокие уровни начинаются заново
+        rendered = re.sub(r"%(\d)", lambda m: self._render_level(num_id, int(m.group(1)) - 1), lvl_text)
+        return f"{rendered} " if rendered else ""
 
 
 def _list_level(paragraph: Paragraph) -> int | None:
@@ -326,6 +401,7 @@ class WordExtractor:
         self._fill_title_meta(doc, result)
 
         current: ContentBlock | None = None
+        numbering = _NumberingModel(doc)
 
         for item in _iter_block_items(doc):
             if isinstance(item, Paragraph):
@@ -352,8 +428,14 @@ class WordExtractor:
                     # списка «1. Дайте определение…») — это контент текущего блока,
                     # а не новый раздел: не дробим списки вопросов на части.
                 if current is not None and text:
+                    rich = para_to_rich(item)
+                    props = _num_props(item)
+                    if props is not None and rich.runs:
+                        # Автонумерация Word при переносе теряется — синтезируем
+                        # видимый номер/маркер в текст («1. », «– »).
+                        rich.runs.insert(0, RichRun(text=numbering.prefix(*props)))
                     current.elements.append(
-                        ContentElement(kind=ElementKind.PARAGRAPH, paragraph=para_to_rich(item))
+                        ContentElement(kind=ElementKind.PARAGRAPH, paragraph=rich)
                     )
             elif isinstance(item, Table):
                 if current is not None:

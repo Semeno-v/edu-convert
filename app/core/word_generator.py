@@ -205,11 +205,9 @@ class DocxtplGenerator:
         self._hl(run, highlight)
 
     def _add_paragraph(self, sd, rich: RichParagraph, *, highlight: bool) -> None:
-        style = "List Bullet" if rich.list_level is not None else None
-        try:
-            paragraph = sd.add_paragraph(style=style) if style else sd.add_paragraph()
-        except KeyError:
-            paragraph = sd.add_paragraph()
+        # Маркер/номер списка уже синтезирован экстрактором в текст ранов —
+        # стиль списка не назначаем, чтобы не получить двойной маркер.
+        paragraph = sd.add_paragraph()
         for run in rich.runs:
             r = paragraph.add_run(run.text)
             r.bold, r.italic, r.underline = run.bold, run.italic, run.underline
