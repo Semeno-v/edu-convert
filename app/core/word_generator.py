@@ -225,6 +225,7 @@ class DocxtplGenerator:
                         continue
                     body = [c for c in texts if not re.fullmatch(r"\d+\.?", c)]  # «№ п/п»
                     cite = re.sub(r"\.\s*\.", ".", ". ".join(body))
+                    cite = re.sub(r" {2,}", " ", cite)
                     items.append(cite if cite.endswith(".") else cite + ".")
             elif element.kind == ElementKind.PARAGRAPH and element.paragraph is not None:
                 text = element.paragraph.text.strip()
@@ -450,6 +451,7 @@ def _table_to_citations(block: ContentBlock | None) -> list[str]:
         parts = [p for p in (g(ca), title, imprint, url) if p]
         if g(ca) or title:
             cite = re.sub(r"\.\s*\.", ".", ". ".join(parts))  # убираем двойные точки
+            cite = re.sub(r" {2,}", " ", cite)  # кратные пробелы исходника
             citations.append(cite)
     return citations
 
