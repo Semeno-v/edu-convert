@@ -131,6 +131,13 @@ def test_generate_uses_excel_numbers(
     assert hours.get("lec") == "12"
     assert hours.get("pr") == "10"
 
+    # Аттестация: «Всего» = сводка с семестром, посеместровая = вид (как в эталоне).
+    for table in doc.tables:
+        if "Вид учебной работы" in " ".join(c.text for c in table.rows[0].cells):
+            att = next(r for r in table.rows if "аттестации" in r.cells[0].text)
+            assert att.cells[2].text.strip() == "Зачет (1)"
+            assert att.cells[3].text.strip() == "Зачет"
+
     xml = zipfile.ZipFile(out).read("word/document.xml").decode("utf-8", "replace")
     # Литература переформатирована из таблицы в список — автор присутствует.
     assert "Иванов" in xml

@@ -222,8 +222,11 @@ def _tag_hours_table(doc: Document) -> None:
             # Значения подсвечиваются жёлтым (всё, что заполнено из Базы).
             if len(row.cells) > 2:
                 set_value_tag(row.cells[2].paragraphs[0], tag)
-            if len(row.cells) > 3 and "{{ control" not in tag:
-                set_value_tag(row.cells[3].paragraphs[0], tag)
+            if len(row.cells) > 3:
+                # Для аттестации в семестровой колонке — вид без номера семестра
+                # (эталон заполняет обе ячейки: «экзамен | экзамен»).
+                sem_tag = "{{ control_kind }}" if "{{ control" in tag else tag
+                set_value_tag(row.cells[3].paragraphs[0], sem_tag)
         break
 
 

@@ -109,6 +109,8 @@ class DocxtplGenerator:
             # «Часы самостоятельной работы» в форме = СРС + контроль (как в эталоне).
             "hours_self_study": subject.hours_srs + subject.hours_control,
             "control_summary": subject.control_summary,
+            # Вид аттестации без семестра — для посеместровой колонки таблицы §3.
+            "control_kind": ", ".join(dict.fromkeys(cf.kind.value for cf in subject.control_forms)),
             "semesters": ", ".join(str(s) for s in subject.semesters),
             "department": subject.department or "",
             "department_name": subject.department_name or "",
