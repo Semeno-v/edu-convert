@@ -226,11 +226,26 @@ class DocxtplGenerator:
             table.style = "Table Grid"
         except KeyError:
             pass
+        # Сначала восстанавливаем объединения (как в исходнике), потом заполняем.
         for ri, row in enumerate(rich.rows):
             for ci, cell in enumerate(row.cells):
-                if ci >= ncols:
+                if cell.merged or (cell.colspan == 1 and cell.rowspan == 1) or ci >= ncols:
+                    continue
+                br = min(ri + cell.rowspan - 1, len(rich.rows) - 1)
+                bc = min(ci + cell.colspan - 1, ncols - 1)
+                try:
+                    table.cell(ri, ci).merge(table.cell(br, bc))
+                except Exception:  # noqa: BLE001 — кривое объединение не валит перенос
+                    pass
+        filled: set[int] = set()
+        for ri, row in enumerate(rich.rows):
+            for ci, cell in enumerate(row.cells):
+                if cell.merged or ci >= ncols:
                     continue
                 tc = table.cell(ri, ci)
+                if id(tc._tc) in filled:
+                    continue
+                filled.add(id(tc._tc))
                 tc.text = ""
                 for pi, para in enumerate(cell.paragraphs):
                     p = tc.paragraphs[0] if pi == 0 else tc.add_paragraph()

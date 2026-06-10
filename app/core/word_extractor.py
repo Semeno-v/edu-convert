@@ -177,19 +177,40 @@ def para_to_rich(paragraph: Paragraph) -> RichParagraph:
 
 
 def table_to_rich(table: Table) -> RichTable:
-    """Преобразует таблицу python-docx в :class:`RichTable`."""
+    """Преобразует таблицу python-docx в :class:`RichTable`.
+
+    Объединённые ячейки (gridSpan/vMerge) python-docx отдаёт повторами одного
+    объекта по сетке — без учёта этого текст дублировался бы в каждой позиции
+    («Итого» трижды в строке). Ячейка-исток получает colspan/rowspan, накрытые
+    позиции помечаются ``merged`` и остаются пустыми.
+    """
+    tc_grid = [[cell._tc for cell in row.cells] for row in table.rows]
+    nrows = len(tc_grid)
     rows: list[RichTableRow] = []
-    for row in table.rows:
-        cells = [
-            RichTableCell(
-                paragraphs=[
-                    para_to_rich(item)
-                    for item in _iter_block_items(cell)
-                    if isinstance(item, Paragraph)
-                ]
+    for r, row in enumerate(table.rows):
+        cells: list[RichTableCell] = []
+        for c, cell in enumerate(row.cells):
+            tc = tc_grid[r][c]
+            if (c > 0 and tc_grid[r][c - 1] is tc) or (r > 0 and tc_grid[r - 1][c] is tc):
+                cells.append(RichTableCell(merged=True))
+                continue
+            colspan = 1
+            while c + colspan < len(tc_grid[r]) and tc_grid[r][c + colspan] is tc:
+                colspan += 1
+            rowspan = 1
+            while r + rowspan < nrows and c < len(tc_grid[r + rowspan]) and tc_grid[r + rowspan][c] is tc:
+                rowspan += 1
+            cells.append(
+                RichTableCell(
+                    paragraphs=[
+                        para_to_rich(item)
+                        for item in _iter_block_items(cell)
+                        if isinstance(item, Paragraph)
+                    ],
+                    colspan=colspan,
+                    rowspan=rowspan,
+                )
             )
-            for cell in row.cells
-        ]
         rows.append(RichTableRow(cells=cells))
     return RichTable(rows=rows)
 

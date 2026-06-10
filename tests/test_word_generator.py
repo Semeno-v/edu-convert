@@ -228,6 +228,32 @@ def test_subdoc_content_is_valid_ooxml(
     assert _nested_block_in_wt(xml) == []
 
 
+def test_generate_table_restores_merges(
+    generator: DocxtplGenerator, subject: SubjectData, tmp_path: Path
+) -> None:
+    # Объединённые ячейки исходника восстанавливаются (gridSpan/vMerge),
+    # текст истока не дублируется по сетке.
+    def cell(t: str = "", **kw: object) -> RichTableCell:
+        paras = [RichParagraph(runs=[RichRun(text=t)])] if t else []
+        return RichTableCell(paragraphs=paras, **kw)
+
+    table = RichTable(rows=[
+        RichTableRow(cells=[cell("Шапка-АБВ", colspan=3), cell(merged=True), cell(merged=True)]),
+        RichTableRow(cells=[cell("Итого-XYZ", rowspan=2), cell("10"), cell("20")]),
+        RichTableRow(cells=[cell(merged=True), cell("1"), cell("2")]),
+    ])
+    cb = ContentBlocks(blocks={"thematic_plan": ContentBlock(
+        key="thematic_plan", title="ТП",
+        elements=[ContentElement(kind=ElementKind.TABLE, table=table)])})
+    out = tmp_path / "merged.docx"
+    generator.generate(settings.rpd_template, out, subject, cb, DocType.RPD)
+    xml = zipfile.ZipFile(out).read("word/document.xml").decode("utf-8", "replace")
+    assert xml.count("Шапка-АБВ") == 1
+    assert xml.count("Итого-XYZ") == 1
+    assert '<w:gridSpan w:val="3"/>' in xml
+    assert "<w:vMerge" in xml
+
+
 def test_subdoc_content_visible_to_python_docx(
     generator: DocxtplGenerator, subject: SubjectData, content: ContentBlocks, tmp_path: Path
 ) -> None:

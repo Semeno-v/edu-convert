@@ -142,7 +142,13 @@ class RichParagraph(BaseModel):
 
 
 class RichTableCell(BaseModel):
+    """Ячейка: для объединений хранится размах (colspan/rowspan) у ячейки-истока,
+    а накрытые позиции помечаются ``merged`` (текст не дублируется)."""
+
     paragraphs: list[RichParagraph] = Field(default_factory=list)
+    colspan: int = 1
+    rowspan: int = 1
+    merged: bool = False
 
 
 class RichTableRow(BaseModel):

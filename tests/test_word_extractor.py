@@ -211,6 +211,37 @@ def test_stop_headings_close_block(extractor: WordExtractor, tmp_path: Path) -> 
     assert main is not None and not main.is_empty   # литература ловится своим правилом
 
 
+# --------------------------------------------------------------------------- #
+#  Объединённые ячейки: текст не дублируется, размах сохраняется
+# --------------------------------------------------------------------------- #
+def test_table_to_rich_preserves_merges(tmp_path: Path) -> None:
+    doc = Document()
+    t = doc.add_table(rows=3, cols=3)
+    t.cell(0, 0).merge(t.cell(0, 2))      # горизонталь: вся первая строка
+    t.cell(1, 0).merge(t.cell(2, 0))      # вертикаль: первая колонка вниз
+    t.cell(0, 0).text = "Шапка"
+    t.cell(1, 0).text = "Итого"
+    t.cell(1, 1).text = "10"
+
+    rich = table_to_rich(t)
+    head = rich.rows[0].cells
+    assert head[0].colspan == 3 and not head[0].merged
+    assert head[1].merged and head[2].merged
+    assert head[1].paragraphs == []        # текст «Шапка» не задвоен
+    col = [rich.rows[1].cells[0], rich.rows[2].cells[0]]
+    assert col[0].rowspan == 2 and not col[0].merged
+    assert col[1].merged
+
+    texts = [
+        p.text
+        for row in rich.rows
+        for cell in row.cells
+        for p in cell.paragraphs
+    ]
+    assert texts.count("Шапка") == 1
+    assert texts.count("Итого") == 1
+
+
 def test_stop_heading_content_dropped(extractor: WordExtractor, tmp_path: Path) -> None:
     doc = Document()
     doc.add_paragraph("4.2 Ресурсы сети Интернет")
