@@ -261,6 +261,28 @@ def test_generate_table_restores_merges(
     assert "<w:vMerge" in xml
 
 
+def test_generate_large_table_fills_all_cells(
+    generator: DocxtplGenerator, subject: SubjectData, tmp_path: Path
+) -> None:
+    # Регрессия: id()-кэш lxml-прокси ложно помечал ячейки заполненными —
+    # большие перенесённые таблицы рендерились с пустыми хвостами.
+    rows = [
+        RichTableRow(cells=[
+            RichTableCell(paragraphs=[RichParagraph(runs=[RichRun(text=f"яч-{r}-{c}")])])
+            for c in range(4)
+        ])
+        for r in range(40)
+    ]
+    cb = ContentBlocks(blocks={"thematic_plan": ContentBlock(
+        key="thematic_plan", title="ТП",
+        elements=[ContentElement(kind=ElementKind.TABLE, table=RichTable(rows=rows))])})
+    out = tmp_path / "big.docx"
+    generator.generate(settings.rpd_template, out, subject, cb, DocType.RPD)
+    xml = zipfile.ZipFile(out).read("word/document.xml").decode("utf-8", "replace")
+    missing = [f"яч-{r}-{c}" for r in range(40) for c in range(4) if f"яч-{r}-{c}" not in xml]
+    assert missing == []
+
+
 def test_subdoc_content_visible_to_python_docx(
     generator: DocxtplGenerator, subject: SubjectData, content: ContentBlocks, tmp_path: Path
 ) -> None:

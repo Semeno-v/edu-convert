@@ -381,7 +381,35 @@ def test_stop_heading_content_dropped(extractor: WordExtractor, tmp_path: Path) 
     text = " ".join(e.paragraph.text for e in res.elements if e.paragraph)
     assert "https://example.org" in text
     assert "СПС Гарант" in text            # ПБД сливаются в интернет-ресурсы
-    assert "Не предусмотрено" not in text  # заглушка из стоп-раздела отброшена
+    assert "Не предусмотрено" not in text  # заглушка-абзац отфильтрована
+    assert "Дополнительные средства" not in text  # заголовок поглощён merge'м
+
+
+def test_additional_means_table_preserved(extractor: WordExtractor, tmp_path: Path) -> None:
+    # Таблица под «4.3 Дополнительные средства обучения» (например, «Совнет») —
+    # реальные on-line ресурсы, переносится в блок интернет-ресурсов.
+    doc = Document()
+    doc.add_paragraph("4.2 Ресурсы сети Интернет")
+    doc.add_paragraph("https://example.org")
+    doc.add_paragraph("4.3 Дополнительные средства обучения (в том числе on-line курсы)")
+    t = doc.add_table(rows=1, cols=2)
+    t.cell(0, 0).text = "Российская ассоциация управления проектами («Совнет»)"
+    t.cell(0, 1).text = "www.sovnet.ru"
+    path = tmp_path / "sovnet.docx"
+    doc.save(str(path))
+
+    content = extractor.extract(path, DocType.RPD)
+    res = content.get("internet_resources")
+    assert res is not None
+    cell_text = " ".join(
+        p.text
+        for e in res.elements
+        if e.table
+        for row in e.table.rows
+        for cell in row.cells
+        for p in cell.paragraphs
+    )
+    assert "Совнет" in cell_text and "www.sovnet.ru" in cell_text
 
 
 # --------------------------------------------------------------------------- #

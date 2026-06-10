@@ -237,15 +237,15 @@ class DocxtplGenerator:
                     table.cell(ri, ci).merge(table.cell(br, bc))
                 except Exception:  # noqa: BLE001 — кривое объединение не валит перенос
                     pass
-        filled: set[int] = set()
+        # Заполняются только ячейки-истоки: накрытые объединением позиции
+        # помечены merged и пропускаются (table.cell для них вернул бы исток).
+        # id()-кэш здесь недопустим: lxml-прокси временные, их адреса
+        # переиспользуются — ячейки ложно считались уже заполненными.
         for ri, row in enumerate(rich.rows):
             for ci, cell in enumerate(row.cells):
                 if cell.merged or ci >= ncols:
                     continue
                 tc = table.cell(ri, ci)
-                if id(tc._tc) in filled:
-                    continue
-                filled.add(id(tc._tc))
                 tc.text = ""
                 for pi, para in enumerate(cell.paragraphs):
                     p = tc.paragraphs[0] if pi == 0 else tc.add_paragraph()
