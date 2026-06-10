@@ -213,6 +213,7 @@ class OldNumbers(BaseModel):
     hours_lab: int | None = None
     hours_project: int | None = None
     hours_srs: int | None = None
+    hours_control: int | None = None
     semester: int | None = None
     control_raw: str | None = None
 

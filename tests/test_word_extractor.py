@@ -109,6 +109,36 @@ def test_extract_old_numbers_no_table(extractor: WordExtractor, empty_docx: Path
     assert old.hours_total is None
 
 
+def test_extract_old_numbers_real_layout(extractor: WordExtractor, tmp_path: Path) -> None:
+    # Реальная шапка: строка «Очная форма обучения» во всех колонках (бывшее
+    # объединение) загрязняет label каждой колонки словом «форма»; СРС разбита
+    # на «Домашнее задание» и «Самоконтроль» под общей шапкой.
+    doc = Document()
+    hdr = [
+        "Семестр (курс)", "Форма промежуточной аттестации",
+        "Общая трудоемкость, часов (ЗЕТ)", "Лекционные занятия, часов",
+        "Практические занятия, часов",
+        "Виды самостоятельной работы – Домашнее задание, часов",
+        "Виды самостоятельной работы – Самоконтроль, часов",
+        "Контроль, часов",
+    ]
+    data = ["4(2)", "Экзамен", "216 (6)", "16", "32", "90", "31", "30"]
+    t = doc.add_table(rows=3, cols=len(hdr))
+    for c, h in enumerate(hdr):
+        t.rows[0].cells[c].text = h
+        t.rows[1].cells[c].text = "Очная форма обучения"
+        t.rows[2].cells[c].text = data[c]
+    path = tmp_path / "real_hours.docx"
+    doc.save(str(path))
+
+    old = extractor.extract_old_numbers(path)
+    assert old.control_raw == "Экзамен"      # не колонка семестра
+    assert old.hours_srs == 121              # 90 + 31
+    assert old.hours_control == 30
+    assert old.semester == 4
+    assert old.ze == 6.0 and old.hours_total == 216
+
+
 # --------------------------------------------------------------------------- #
 #  Конечный автомат: текстовые блоки
 # --------------------------------------------------------------------------- #

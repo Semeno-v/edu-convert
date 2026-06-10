@@ -381,6 +381,24 @@ class WordExtractor:
 
         hours_total, ze = parse_hours_ze(val(ctrud))
         semester, _course = parse_hours_ze(val(find_col("семестр")))
+
+        # СРС может быть разбита на несколько колонок («Домашнее задание»,
+        # «Самоконтроль» под общей шапкой «Виды самостоятельной работы») — суммируем.
+        srs_vals = [
+            _opt_int(val(c))
+            for c, label in enumerate(col_labels)
+            if "самостоятельн" in label or "срс" in label
+        ]
+        srs_known = [v for v in srs_vals if v is not None]
+        # «Контроль, часов» — не путать с «Самоконтролем» из блока СРС.
+        ctrl_col = next(
+            (
+                c
+                for c, label in enumerate(col_labels)
+                if "контрол" in label and "самоконтрол" not in label and "самостоятельн" not in label
+            ),
+            None,
+        )
         return OldNumbers(
             ze=ze,
             hours_total=as_int(hours_total) if hours_total is not None else None,
@@ -388,8 +406,12 @@ class WordExtractor:
             hours_practical=_opt_int(val(find_col("практическ"))),
             hours_lab=_opt_int(val(find_col("лабораторн"))),
             hours_project=_opt_int(val(find_col("проектн"))),
+            hours_srs=sum(srs_known) if srs_known else None,
+            hours_control=_opt_int(val(ctrl_col)),
             semester=int(semester) if semester is not None else None,
-            control_raw=val(find_col("форма")) or None,
+            # «форма» встречается во всех колонках из-за объединённой строки
+            # «Очная форма обучения» — требуем и «аттестац» (точная колонка).
+            control_raw=val(find_col("форма", "аттестац")) or None,
         )
 
     # ------------------------------------------------------------------ #

@@ -19,6 +19,8 @@ _NUMERIC_FIELDS: tuple[tuple[str, str, str], ...] = (
     ("Практические, часов", "hours_practical", "hours_practical"),
     ("Лабораторные, часов", "hours_lab", "hours_lab"),
     ("Проектное обучение, часов", "hours_project", "hours_project"),
+    ("СРС, часов", "hours_srs", "hours_srs"),
+    ("Контроль, часов", "hours_control", "hours_control"),
 )
 
 # Ключевые слова форм контроля для нечёткого сравнения «Зачёт»/«Экзамен».
