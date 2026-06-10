@@ -76,17 +76,33 @@ def set_label_value(paragraph: Paragraph, label: str, tag: str) -> None:
     hl_run(paragraph.add_run(tag))
 
 
-def set_label_value_underlined(paragraph: Paragraph, label: str, tag: str) -> None:
+def set_label_value_underlined(
+    paragraph: Paragraph, label: str, tag: str, *, value_prefix: str = ""
+) -> None:
     """Титульная строка формы: метка + подчёркнутое значение (жёлтое) +
-    подчёркнутый таб — «нижняя линия» до табстопа, как в исходной форме."""
+    подчёркнутый таб — «нижняя линия» до табстопа, как в исходной форме.
+
+    ``value_prefix`` — пробельный отступ перед значением (в форме это «\xa0\xa0»
+    или пробел), тоже подчёркнутый."""
     for run in list(paragraph.runs):
         run._element.getparent().remove(run._element)
     paragraph.add_run(label)
+    if value_prefix:
+        pre = paragraph.add_run(value_prefix)
+        pre.underline = True
     value = paragraph.add_run(tag)
     value.underline = True
     hl_run(value)
     tail = paragraph.add_run("\t")
     tail.underline = True
+
+
+def insert_before(paragraph: Paragraph, text: str) -> Paragraph:
+    new_p = OxmlElement("w:p")
+    paragraph._p.addprevious(new_p)
+    np = Paragraph(new_p, paragraph._parent)
+    np.add_run(text)
+    return np
 
 
 def remove_paragraph(paragraph: Paragraph) -> None:
@@ -262,11 +278,12 @@ def tag_fos(src: Path, dst: Path) -> None:
         if t == "код наименование":
             set_value_tag(p, "{{ index }} {{ name }}")
         elif t.startswith("по направлению подготовки"):
-            set_label_value_underlined(p, "по направлению подготовки ", "{{ direction }}")
+            # Пробельные отступы перед значениями — как в форме/эталонах.
+            set_label_value_underlined(p, "по направлению подготовки ", "{{ direction }}", value_prefix=" ")
         elif t.startswith("направленности"):
             set_label_value_underlined(p, "направленности (профиля) ", "{{ profile }}")
         elif t.startswith("форма обучения"):
-            set_label_value_underlined(p, "форма обучения ", "{{ form_study }}")
+            set_label_value_underlined(p, "форма обучения ", "{{ form_study }}", value_prefix="  ")
         # Статики формы «Примерный перечень задач» / «Примерный состав тестовых
         # вопросов…» сохраняются (так в одобренных эталонах) — контент после них.
         elif "примерный перечень задач" in t:
@@ -286,14 +303,18 @@ def tag_fos(src: Path, dst: Path) -> None:
         elif "обязательно с ответами" in t:
             to_remove.append(p)
         elif t.startswith("заседания кафедры"):
-            set_label_value_underlined(p, "заседания кафедры ", "{{ department_name }}")
+            set_label_value_underlined(p, "заседания кафедры ", "{{ department_name }}", value_prefix="  ")
         elif "методов в экономике и управлении" in t:
             to_remove.append(p)  # хвост захардкоженного названия кафедры (вторая строка)
         elif "государственной итоговой" in t:
             gia_heading = p
 
     if gia_heading is not None:
-        insert_after(gia_heading, "{{p gia }}")
+        # Раздела 3 нет вовсе, если дисциплина не участвует в ГИА (исходный ФОС
+        # без блока ГИА): заголовок + контент под jinja-условием.
+        insert_before(gia_heading, "{%p if gia_present %}")
+        tag_p = insert_after(gia_heading, "{{p gia }}")
+        insert_after(tag_p, "{%p endif %}")
     for p in to_remove:
         remove_paragraph(p)
     _tighten_fos_title(doc)

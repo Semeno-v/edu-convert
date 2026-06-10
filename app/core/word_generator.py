@@ -114,7 +114,9 @@ class DocxtplGenerator:
             "control_kind": ", ".join(dict.fromkeys(cf.kind.value for cf in subject.control_forms)),
             "semesters": ", ".join(str(s) for s in subject.semesters),
             "department": subject.department or "",
-            "department_name": subject.department_name or "",
+            # «заседания кафедры математических методов…» — род. падеж контекста,
+            # первая буква строчная (как в эталонах); аббревиатуры не трогаем.
+            "department_name": _decapitalize(subject.department_name or ""),
             # §8 — родительские коды компетенций (ПК-1, ПК-2).
             "competence_parents": ", ".join(subject.competence_parents),
             # Титул: направление/профиль/форма — атрибуты программы из листа
@@ -146,6 +148,10 @@ class DocxtplGenerator:
             for key in ("current_control", "interim_attestation", "gia"):
                 # Контент ФОС в эталонах переформатирован: по ширине + отступ 1 см.
                 context[key] = self._block_to_subdoc(tpl, content.get(key), body_format=True)
+            # Раздел 3 (ГИА) выводится только при наличии контента в исходнике:
+            # составить выборку задач для ГИА конвертер за методиста не может.
+            gia = content.get("gia")
+            context["gia_present"] = gia is not None and not gia.is_empty
         return context
 
     # ------------------------------------------------------------------ #
@@ -250,7 +256,11 @@ class DocxtplGenerator:
                 paragraph.paragraph_format.left_indent = Pt(rich.left_indent_pt)
         for run in rich.runs:
             r = paragraph.add_run(run.text)
-            r.bold, r.italic, r.underline = run.bold, run.italic, run.underline
+            if not body_format:
+                # body_format (ФОС): инлайн-форматирование исходника снимается —
+                # эталоны приводят контент к единому стилю формы (жирные
+                # «Ответ:» и пр. в одобренных документах вычищены).
+                r.bold, r.italic, r.underline = run.bold, run.italic, run.underline
             self._hl(r, highlight)
 
     def _add_table(self, sd, rich: RichTable, *, highlight: bool) -> None:
@@ -362,6 +372,14 @@ def _table_to_citations(block: ContentBlock | None) -> list[str]:
             cite = re.sub(r"\.\s*\.", ".", ". ".join(parts))  # убираем двойные точки
             citations.append(cite)
     return citations
+
+
+def _decapitalize(text: str) -> str:
+    """Опускает первую букву («Математических…» → «математических…»);
+    аббревиатуры (вторая буква заглавная) не трогает."""
+    if len(text) >= 2 and text[0].isupper() and text[1].islower():
+        return text[0].lower() + text[1:]
+    return text
 
 
 def _num(value: float) -> str | int:
