@@ -464,6 +464,25 @@ class WordExtractor:
             elif "форма обучения" in low and result.form_study is None:
                 result.form_study = re.sub(r"(?i)форма обучения\s*", "", text).strip()
 
+        # Титульная таблица «метка | значение» (характерна для ФОС:
+        # «Направление подготовки | 09.04.03 …») — абзацный скан её не видит.
+        for table in doc.tables[:3]:
+            for row in table.rows:
+                if len(row.cells) < 2:
+                    continue
+                label = normalize_text(row.cells[0].text)
+                value = " ".join(row.cells[1].text.split())
+                if not value:
+                    continue
+                if "направление подготовки" in label and result.direction is None:
+                    result.direction = value
+                elif (
+                    "образовательная программа" in label or "профил" in label
+                ) and result.profile is None:
+                    result.profile = value
+                elif "форма обучения" in label and result.form_study is None:
+                    result.form_study = value
+
 
 def _opt_int(value: str) -> int | None:
     """parse_hours_ze → внешнее число (для ячеек вида «12» или «12 (…)»)."""

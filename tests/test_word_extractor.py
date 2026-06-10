@@ -211,6 +211,26 @@ def test_stop_headings_close_block(extractor: WordExtractor, tmp_path: Path) -> 
     assert main is not None and not main.is_empty   # литература ловится своим правилом
 
 
+def test_title_meta_from_title_table(extractor: WordExtractor, tmp_path: Path) -> None:
+    # Титул ФОС: направление/программа/форма лежат в таблице «метка | значение».
+    doc = Document()
+    doc.add_paragraph("Б1.О.01 Методология научных исследований")
+    t = doc.add_table(rows=3, cols=2)
+    t.cell(0, 0).text = "Направление подготовки"
+    t.cell(0, 1).text = "09.04.03 «Прикладная информатика»"
+    t.cell(1, 0).text = "Образовательная программа"
+    t.cell(1, 1).text = "Цифровые технологии в управлении"
+    t.cell(2, 0).text = "Форма обучения"
+    t.cell(2, 1).text = "очная"
+    path = tmp_path / "fos_title.docx"
+    doc.save(str(path))
+
+    content = extractor.extract(path, DocType.FOS)
+    assert content.direction == "09.04.03 «Прикладная информатика»"
+    assert content.profile == "Цифровые технологии в управлении"
+    assert content.form_study == "очная"
+
+
 # --------------------------------------------------------------------------- #
 #  Синтез номеров автонумерации (numbering.xml теряется при переносе)
 # --------------------------------------------------------------------------- #
