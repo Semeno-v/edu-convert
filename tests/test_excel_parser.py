@@ -13,7 +13,18 @@ from app.core.models import ControlKind
 
 def test_load_count(plan_xlsx: Path) -> None:
     repo = load_repository(plan_xlsx)
-    assert repo.count == 2  # строка-заголовок «Обязательная часть» игнорируется
+    # Заголовки разделов («Обязательная часть», «ФТД.Факультативы») игнорируются;
+    # факультативы и практики с суффиксом — загружаются.
+    assert repo.count == 4
+
+
+def test_facultative_and_practice_loaded(plan_xlsx: Path) -> None:
+    repo = load_repository(plan_xlsx)
+    ftd = repo.get_subject("ФТД.01")
+    assert ftd.name == "Русский язык в специальных целях"
+    assert ftd.ze == 2.0 and ftd.hours_practical == 38
+    assert repo.has_subject("Б2.О.01(У)")
+    assert not repo.has_subject("ФТД.Факультативы")
 
 
 def test_subject_single_semester(plan_xlsx: Path) -> None:

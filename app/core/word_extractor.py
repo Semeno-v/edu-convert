@@ -122,6 +122,20 @@ def is_heading(text: str) -> bool:
     return bool(_HEADING_RE.match(stripped))
 
 
+def _is_bold_numbered_heading(paragraph: Paragraph) -> bool:
+    """Заголовок-список: прямой numPr + целиком жирный текст.
+
+    Часть исходников нумерует разделы обычным Word-списком со стилем
+    «List Paragraph» («Оценка качества реализации дисциплины» и т.п.) —
+    цепочка стилей тут не помогает. Контентные нумерованные списки
+    (вопросы, перечни) целиком жирными не бывают.
+    """
+    if _num_props(paragraph) is None:
+        return False
+    runs = [r for r in paragraph.runs if r.text.strip()]
+    return bool(runs) and all(r.bold for r in runs)
+
+
 def _has_heading_style(paragraph: Paragraph) -> bool:
     """Заголовок без видимого номера: нумерация/уровень структуры — в стиле.
 
@@ -522,7 +536,9 @@ class WordExtractor:
                         current = switch_to(marker, text)
                         continue
                 if is_heading(text) or (
-                    text and len(text) <= _MAX_HEADING_LEN and _has_heading_style(item)
+                    text
+                    and len(text) <= _MAX_HEADING_LEN
+                    and (_has_heading_style(item) or _is_bold_numbered_heading(item))
                 ):
                     key = _heading_key(text)
                     if (

@@ -270,6 +270,28 @@ def test_fos_drops_assessment_scales(extractor: WordExtractor, tmp_path: Path) -
     assert "competencies" in rpd.blocks
 
 
+def test_bold_numbered_list_headings(extractor: WordExtractor, tmp_path: Path) -> None:
+    # Заголовки-списки («List Paragraph» + numPr + целиком жирные) — как в РПД
+    # факультативов; обычные нумерованные абзацы контента не дробят блок.
+    doc = Document()
+    h = doc.add_paragraph("Основная литература")
+    h.runs[0].bold = True
+    _numbered(doc, "")  # numPr добавим вручную ниже на заголовок
+    # numPr на жирный заголовок
+    numPr = OxmlElement("w:numPr")
+    nid = OxmlElement("w:numId"); nid.set(qn("w:val"), "7")
+    numPr.append(nid)
+    h._p.get_or_add_pPr().append(numPr)
+    doc.add_paragraph("Иванов И.И. Книга про язык.")
+    path = tmp_path / "boldnum.docx"
+    doc.save(str(path))
+
+    content = extractor.extract(path, DocType.RPD)
+    main = content.get("literature_main")
+    assert main is not None
+    assert any(e.paragraph and "Иванов" in e.paragraph.text for e in main.elements)
+
+
 def test_styled_headings_without_numbers(extractor: WordExtractor, tmp_path: Path) -> None:
     # Заголовки без видимых номеров (автонумерация в стиле на базе Heading)
     # распознаются по цепочке стилей — иначе блоки таких РПД не извлекались.

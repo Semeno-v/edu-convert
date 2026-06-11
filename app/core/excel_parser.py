@@ -35,6 +35,10 @@ from app.core.normalizer import as_int, normalize_index, normalize_text, to_floa
 # Код компетенции/индикатора: УК-1, ПК-2, ОПК-1, УК-1-И-1, ПК-2-И-3 …
 _CODE_RE = re.compile(r"^[А-ЯЁ]{2,5}-\d+(?:-И-\d+)?$")
 
+# Индекс дисциплины в листе «План»: Б1.О.01, Б1.В.ДВ.03.01, ФТД.01,
+# практики/ГИА с суффиксом — Б2.О.01(У), Б3.01(Г) …
+_SUBJECT_INDEX_RE = re.compile(r"^(?:Б\d+|ФТД)(?:\.[А-ЯЁ\d]{1,3})*\.\d+(?:\([А-ЯЁ]{1,2}\))?$")
+
 
 def _cell_to_str(value: object) -> str:
     """Приводит ячейку к строке, аккуратно обрабатывая float-целые (108.0 → «108»)."""
@@ -184,8 +188,11 @@ class ExcelSubjectRepository:
             if cols["index"] >= len(row):
                 continue
             raw_index = row[cols["index"]]
-            if not raw_index.startswith("Б"):
-                continue  # строки-заголовки разделов (Блок 1, Обязательная часть…)
+            # Дисциплина — индекс серии «Б…»/«ФТД…», завершающийся числом;
+            # строки-заголовки разделов («Обязательная часть»,
+            # «ФТД.Факультативы») отсеиваются.
+            if not _SUBJECT_INDEX_RE.match(normalize_index(raw_index)):
+                continue
             subject = self._build_subject(row, cols, sem_starts, repeated)
             self._subjects[subject.index] = subject
 

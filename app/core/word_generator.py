@@ -516,8 +516,8 @@ def _fill_topics_table(docx, block: ContentBlock | None, subject: SubjectData) -
         "lab": (find_col("лабораторн"), subject.hours_lab),
         "project": (find_col("проектн"), subject.hours_project),
     }
-    if col_topic is None or cols["lectures"][0] is None:
-        return
+    if col_topic is None or all(col is None for col, _ in cols.values()):
+        return  # нет ни тем, ни одного вида занятий (у ФТД лекций может не быть)
 
     # Строки тем: непустая тема, не шапка и не «итого».
     topic_rows = []
@@ -528,6 +528,8 @@ def _fill_topics_table(docx, block: ContentBlock | None, subject: SubjectData) -
             continue
         if normalize_text(topic) in ("содержание", "наименование тем (разделов)"):
             continue
+        if re.match(r"^\d+\s*семестр", normalize_text(topic)):
+            continue  # строка-разделитель семестров внутри таблицы исходника
         topic_rows.append(cells)
 
     # Коэффициенты масштабирования к Базе по каждому виду занятий.

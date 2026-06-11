@@ -20,7 +20,8 @@ _DOC_MARKERS = {"ФОС", "РПД", "ФО", "РП", "FOS", "RPD"}
 
 # Разделители внутри имён файлов и индексов.
 _SEP_RE = re.compile(r"[\s_.\-—–]+")
-_INDEX_HEAD_RE = re.compile(r"^Б\d+$", re.IGNORECASE)
+# Голова индекса: блоки «Б1…» и факультативы «ФТД» (ФТД.01 …).
+_INDEX_HEAD_RE = re.compile(r"^(?:Б\d+|ФТД)$", re.IGNORECASE)
 _LETTER_CODE_RE = re.compile(r"^[А-ЯЁ]{1,2}$")
 _NUMBER_RE = re.compile(r"^\d+$")
 
@@ -108,7 +109,7 @@ def index_from_text(text: str) -> str | None:
     # Буквенные коды (О/В/ДВ) — короткие и отделены разделителем; lookahead
     # не даёт «съесть» начало следующего слова (…01 МЕТОДОЛОГИЯ → не «01.МЕ»).
     match = re.search(
-        r"Б\d+(?:[\s_.\-]+(?:\d+|[А-ЯЁ]{1,2}(?![А-Яа-яЁё])))+",
+        r"(?:Б\d+|ФТД)(?:[\s_.\-]+(?:\d+|[А-ЯЁ]{1,2}(?![А-Яа-яЁё])))+",
         text,
         re.IGNORECASE,
     )
