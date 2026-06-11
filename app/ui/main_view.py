@@ -4,6 +4,9 @@
 мутация его полей автоматически перерисовывает UI без ручных ``page.update()``.
 Тяжёлая конвертация выполняется асинхронно через оркестратор; прогресс
 обновляется колбэком, меняющим поля состояния (ТЗ §5).
+
+Визуальный язык — фирменный стиль ГУУ (:mod:`app.ui.theme`): секции-карточки
+с номерами шагов, градиентная шапка, светлая тема.
 """
 
 from __future__ import annotations
@@ -15,10 +18,14 @@ from pathlib import Path
 
 import flet as ft
 
+from app import __version__
 from app.config import settings
 from app.core.models import FileResult
 from app.services.orchestrator import Orchestrator, RunResult
+from app.ui import theme
+from app.ui.components.file_list import FileList
 from app.ui.components.report_table import ReportTable
+from app.ui.components.section_card import SectionCard
 from app.ui.components.upload_card import UploadCard
 
 _INPUT_SUFFIXES = {".doc", ".docx"}
@@ -102,6 +109,14 @@ class AppState:
     def clear_inputs(self) -> None:
         self.input_files = []
 
+    def remove_file(self, path: Path) -> None:
+        """Убирает один файл из списка выбранных (крестик в строке списка).
+
+        Список переприсваивается (не мутируется in-place): ``@ft.observable``
+        реагирует только на присваивание поля.
+        """
+        self.input_files = [p for p in self.input_files if p != path]
+
     # --- запуск конвертации --- #
     async def start(self, e: ft.Event[ft.Control] | None = None) -> None:
         if not self.ready:
@@ -152,6 +167,19 @@ def _name(path: Path | None) -> str | None:
     return path.name if path else None
 
 
+def _counter_pill(count: int) -> ft.Control:
+    """Счётчик выбранных файлов в заголовке секции 2."""
+    return ft.Container(
+        bgcolor=ft.Colors.with_opacity(0.10, ft.Colors.PRIMARY),
+        border_radius=999,
+        padding=ft.Padding.symmetric(horizontal=12, vertical=4),
+        content=ft.Text(
+            f"файлов: {count}", size=12, weight=ft.FontWeight.W_600,
+            color=ft.Colors.PRIMARY,
+        ),
+    )
+
+
 @ft.component
 def App() -> ft.Control:
     state, _ = ft.use_state(AppState())
@@ -194,118 +222,216 @@ def App() -> ft.Control:
         dest = await save_picker.current.save_file(file_name="EduConvert_результат.zip")
         state.save_zip_to(dest)
 
-    # --- Зона 1: настройки --- #
-    settings_zone = ft.Column(
-        spacing=8,
-        controls=[
-            ft.Text("1. Базовые файлы", size=16, weight=ft.FontWeight.BOLD),
-            UploadCard("База данных (Excel)", _name(state.db_path), state.db_ok,
-                       ft.Icons.TABLE_VIEW, pick_db),
-            UploadCard("Шаблон РПД (2026)", _name(state.rpd_path), state.rpd_ok,
-                       ft.Icons.DESCRIPTION, pick_rpd),
-            UploadCard("Шаблон ФОС (2026)", _name(state.fos_path), state.fos_ok,
-                       ft.Icons.FACT_CHECK, pick_fos),
-        ],
-    )
+    async def start_conversion(e: ft.Event[ft.Control]) -> None:
+        # локальная обёртка: bound-метод observable, переданный в on_click
+        # контрола из props компонента, в Flet 0.85 не срабатывает
+        await state.start(e)
 
-    # --- Зона 2: рабочая область (выбор исходников) --- #
-    drop_zone = ft.Container(
-        border=ft.Border.all(2, ft.Colors.OUTLINE_VARIANT),
-        border_radius=12,
-        padding=24,
-        bgcolor=ft.Colors.SURFACE_CONTAINER_LOW,
+    # --- Зона 1: базовые файлы --- #
+    settings_zone = SectionCard(
+        number="1",
+        title="Базовые файлы",
+        subtitle="База дисциплин и официальные шаблоны 2026",
         content=ft.Column(
-            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-            spacing=10,
+            spacing=8,
             controls=[
-                ft.Icon(ft.Icons.UPLOAD_FILE, size=46, color=ft.Colors.PRIMARY),
-                ft.Text("Выберите старые файлы РПД и ФОС (или папку с ними)",
-                        size=14, text_align=ft.TextAlign.CENTER),
-                ft.Row(
-                    alignment=ft.MainAxisAlignment.CENTER,
-                    spacing=10,
-                    controls=[
-                        ft.FilledButton("Выбрать файлы", icon=ft.Icons.NOTE_ADD,
-                                        on_click=pick_inputs),
-                        ft.OutlinedButton("Выбрать папку", icon=ft.Icons.FOLDER,
-                                          on_click=pick_dir),
-                        ft.TextButton("Очистить", icon=ft.Icons.CLEAR,
-                                      on_click=lambda e: state.clear_inputs()),
-                    ],
-                ),
-                ft.Text(f"Загружено файлов: {len(state.input_files)}",
-                        size=13, weight=ft.FontWeight.BOLD, color=ft.Colors.PRIMARY),
+                UploadCard("База данных (Excel)", _name(state.db_path), state.db_ok,
+                           ft.Icons.TABLE_VIEW, pick_db),
+                UploadCard("Шаблон РПД (2026)", _name(state.rpd_path), state.rpd_ok,
+                           ft.Icons.DESCRIPTION, pick_rpd),
+                UploadCard("Шаблон ФОС (2026)", _name(state.fos_path), state.fos_ok,
+                           ft.Icons.FACT_CHECK, pick_fos),
             ],
         ),
     )
 
-    # --- Зона 3: управление и статус --- #
-    control_zone = ft.Column(
-        spacing=10,
-        controls=[
-            ft.FilledButton(
-                "Начать конвертацию",
-                icon=ft.Icons.PLAY_ARROW,
-                disabled=not state.ready,
-                on_click=state.start,
-                height=46,
-            ),
-            ft.ProgressBar(value=state.progress, visible=state.running),
-            ft.Text(state.status, size=13, color=ft.Colors.ON_SURFACE_VARIANT),
-        ],
+    # --- Зона 2: исходные документы --- #
+    pick_buttons: list[ft.Control] = [
+        ft.FilledButton("Выбрать файлы", icon=ft.Icons.NOTE_ADD, on_click=pick_inputs),
+        ft.OutlinedButton("Выбрать папку", icon=ft.Icons.FOLDER, on_click=pick_dir),
+    ]
+    if state.input_files:  # «Очистить» видна только при непустом списке
+        pick_buttons.append(
+            ft.TextButton("Очистить", icon=ft.Icons.CLEAR,
+                          on_click=lambda e: state.clear_inputs())
+        )
+
+    files_zone = SectionCard(
+        number="2",
+        title="Исходные документы",
+        subtitle="Старые РПД и ФОС (.doc / .docx)",
+        trailing=_counter_pill(len(state.input_files)),
+        content=ft.Column(
+            spacing=12,
+            controls=[
+                ft.Container(
+                    border=ft.Border.all(2, ft.Colors.OUTLINE_VARIANT),
+                    border_radius=12,
+                    padding=ft.Padding.symmetric(horizontal=24, vertical=20),
+                    bgcolor=ft.Colors.SURFACE_CONTAINER_LOW,
+                    content=ft.Column(
+                        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                        spacing=10,
+                        controls=[
+                            ft.Icon(ft.Icons.UPLOAD_FILE, size=40, color=ft.Colors.PRIMARY),
+                            ft.Text("Выберите старые файлы РПД и ФОС (или папку с ними)",
+                                    size=14, text_align=ft.TextAlign.CENTER),
+                            ft.Row(alignment=ft.MainAxisAlignment.CENTER, spacing=10,
+                                   controls=pick_buttons),
+                        ],
+                    ),
+                ),
+                FileList(state.input_files, state.remove_file),
+            ],
+        ),
     )
 
-    body: list[ft.Control] = [
-        settings_zone,
-        ft.Divider(),
-        ft.Text("2. Исходные документы", size=16, weight=ft.FontWeight.BOLD),
-        drop_zone,
-        ft.Divider(),
-        control_zone,
-    ]
+    # --- Зона 3: конвертация и прогресс --- #
+    percent = int(state.progress * 100)
+    if state.running:
+        progress_block: list[ft.Control] = [
+            ft.ProgressBar(value=state.progress, bar_height=8, border_radius=4),
+            ft.Row(
+                spacing=10,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                controls=[
+                    ft.ProgressRing(width=18, height=18, stroke_width=2.5),
+                    ft.Text(f"{percent} %", size=13, weight=ft.FontWeight.BOLD,
+                            color=ft.Colors.PRIMARY),
+                    # state.status содержит имя обрабатываемого файла
+                    # (его пишет колбэк on_progress)
+                    ft.Text(state.status, size=13, expand=True, max_lines=1,
+                            overflow=ft.TextOverflow.ELLIPSIS,
+                            color=ft.Colors.ON_SURFACE_VARIANT),
+                ],
+            ),
+        ]
+    elif state.status:
+        progress_block = [
+            ft.Text(state.status, size=13, color=ft.Colors.ON_SURFACE_VARIANT)
+        ]
+    else:
+        progress_block = []
+
+    control_zone = SectionCard(
+        number="3",
+        title="Конвертация",
+        content=ft.Column(
+            spacing=12,
+            controls=[
+                ft.FilledButton(
+                    "Начать конвертацию",
+                    icon=ft.Icons.PLAY_ARROW_ROUNDED,
+                    disabled=not state.ready,
+                    on_click=start_conversion,
+                    height=48,
+                    style=ft.ButtonStyle(
+                        text_style=ft.TextStyle(size=15, weight=ft.FontWeight.W_600)
+                    ),
+                ),
+                *progress_block,
+            ],
+        ),
+    )
+
+    body: list[ft.Control] = [settings_zone, files_zone, control_zone]
 
     if state.error:
         body.append(
             ft.Container(
-                bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.RED),
-                border_radius=8, padding=12,
-                content=ft.Text(state.error, color=ft.Colors.RED),
+                bgcolor=ft.Colors.ERROR_CONTAINER,
+                border_radius=8,
+                padding=12,
+                content=ft.Row(
+                    spacing=8,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    controls=[
+                        ft.Icon(ft.Icons.ERROR_OUTLINE, size=18,
+                                color=ft.Colors.ON_ERROR_CONTAINER),
+                        ft.Text(state.error, color=ft.Colors.ON_ERROR_CONTAINER,
+                                expand=True),
+                    ],
+                ),
             )
         )
 
-    # --- Зона 4: результаты --- #
+    # --- Зона 4: результаты (появляются с плавным переходом) --- #
     if state.done:
-        body += [
-            ft.Divider(),
-            ft.Text("3. Результаты", size=16, weight=ft.FontWeight.BOLD),
-            ReportTable(state.results),
-            ft.FilledButton(
-                "Скачать результаты (.zip)",
-                icon=ft.Icons.DOWNLOAD,
-                on_click=download,
-            ),
-        ]
+        results_content: ft.Control = ft.Column(
+            key="results",
+            spacing=0,
+            controls=[
+                SectionCard(
+                    number="4",
+                    title="Результаты",
+                    subtitle="Отчёт о расхождениях и архив готовых документов",
+                    content=ft.Column(
+                        spacing=12,
+                        controls=[
+                            ReportTable(state.results),
+                            ft.FilledButton(
+                                "Скачать результаты (.zip)",
+                                icon=ft.Icons.DOWNLOAD,
+                                on_click=download,
+                            ),
+                        ],
+                    ),
+                ),
+            ],
+        )
+    else:
+        results_content = ft.Container(key="empty", height=0)
 
-    on_primary = ft.Colors.ON_PRIMARY
+    body.append(
+        ft.AnimatedSwitcher(
+            duration=ft.Duration(milliseconds=250),  # дефолт 1 с — слишком медленно
+            switch_in_curve=ft.AnimationCurve.EASE_OUT,
+            switch_out_curve=ft.AnimationCurve.EASE_IN,
+            transition=ft.AnimatedSwitcherTransition.FADE,
+            content=results_content,
+        )
+    )
+
+    # --- шапка: градиент фирменных синих ГУУ + версия --- #
     header = ft.Container(
-        bgcolor=ft.Colors.PRIMARY,
+        gradient=ft.LinearGradient(
+            begin=ft.Alignment.CENTER_LEFT,
+            end=ft.Alignment.CENTER_RIGHT,
+            colors=[theme.GUU_BLUE, theme.GUU_BLUE_BRIGHT],
+        ),
         padding=ft.Padding.symmetric(horizontal=28, vertical=18),
         content=ft.Row(
             spacing=16,
             vertical_alignment=ft.CrossAxisAlignment.CENTER,
             controls=[
-                ft.Icon(ft.Icons.SWAP_HORIZONTAL_CIRCLE_OUTLINED, size=40, color=on_primary),
+                ft.Container(
+                    width=52,
+                    height=52,
+                    border_radius=26,
+                    bgcolor=ft.Colors.with_opacity(0.15, ft.Colors.WHITE),
+                    alignment=ft.Alignment.CENTER,
+                    content=ft.Icon(ft.Icons.SWAP_HORIZONTAL_CIRCLE_OUTLINED,
+                                    size=34, color=ft.Colors.WHITE),
+                ),
                 ft.Column(
                     spacing=2,
                     tight=True,
+                    expand=True,
                     controls=[
-                        ft.Text("EduConvert", size=24, weight=ft.FontWeight.BOLD, color=on_primary),
+                        ft.Text("EduConvert", size=24, weight=ft.FontWeight.BOLD,
+                                color=ft.Colors.WHITE),
                         ft.Text(
                             "Конвертация РПД и ФОС в шаблоны 2026",
                             size=13,
-                            color=ft.Colors.with_opacity(0.85, on_primary),
+                            color=ft.Colors.with_opacity(0.85, ft.Colors.WHITE),
                         ),
                     ],
+                ),
+                ft.Container(
+                    border_radius=999,
+                    padding=ft.Padding.symmetric(horizontal=10, vertical=4),
+                    bgcolor=ft.Colors.with_opacity(0.15, ft.Colors.WHITE),
+                    content=ft.Text(f"v{__version__}", size=11, color=ft.Colors.WHITE),
                 ),
             ],
         ),
@@ -321,8 +447,14 @@ def App() -> ft.Control:
             header,
             ft.Container(
                 expand=True,
-                padding=24,
-                content=ft.Column(body, spacing=16, scroll=ft.ScrollMode.AUTO),
+                alignment=ft.Alignment.TOP_CENTER,
+                padding=ft.Padding.symmetric(horizontal=24, vertical=20),
+                # ширина контента ограничена: на широких экранах (веб)
+                # колонка не растягивается во весь вьюпорт
+                content=ft.Container(
+                    width=880,
+                    content=ft.Column(body, spacing=16, scroll=ft.ScrollMode.AUTO),
+                ),
             ),
         ],
     )
@@ -331,9 +463,15 @@ def App() -> ft.Control:
 def main(page: ft.Page) -> None:
     """Точка входа Flet-приложения."""
     page.title = "EduConvert — конвертер РПД и ФОС"
-    page.theme_mode = ft.ThemeMode.LIGHT
-    page.theme = ft.Theme(color_scheme_seed=ft.Colors.INDIGO)
+    page.theme_mode = ft.ThemeMode.LIGHT  # только светлая тема (решение кафедры)
+    page.theme = theme.build_theme()
     page.padding = 0
+    if not page.web:  # свойства окна применимы только на десктопе
+        page.window.width = 920
+        page.window.height = 780
+        page.window.min_width = 760
+        page.window.min_height = 620
+        page.window.alignment = ft.Alignment.CENTER
     page.render(App)
 
 
