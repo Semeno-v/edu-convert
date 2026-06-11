@@ -253,9 +253,12 @@ class Orchestrator:
         if hours_check is not None:
             diffs.append(hours_check)
 
-        # 6. Генерация (числа из Excel, текст из Word).
+        # 6. Генерация (числа из Excel, текст из Word). Выходной файл сохраняет
+        # исходное имя (для .doc — с расширением .docx).
         template = self.rpd_template if doc_type == DocType.RPD else self.fos_template
-        out_name = f"{subject.index}_{doc_type.value}_2026.docx"
+        out_name = path.with_suffix(".docx").name
+        if (out_dir / out_name).exists():  # защита от совпадающих имён входов
+            out_name = f"{subject.index}_{out_name}"
         self.generator.generate(template, out_dir / out_name, subject, content, doc_type)
 
         status = FileStatus.DISCREPANCY if diffs else FileStatus.SUCCESS

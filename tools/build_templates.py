@@ -401,10 +401,12 @@ def _tag_hours_table(doc: Document) -> None:
         # «4 семестр» в шапке колонки «Кол-во часов в семестре (ак.ч.)».
         header_row = table.rows[0]
         if len(header_row.cells) > 3:
+            from docx.enum.text import WD_ALIGN_PARAGRAPH
+
             sem_cell = header_row.cells[3]
             rpr = _capture_rpr(sem_cell.paragraphs[0])
             sem_p = sem_cell.add_paragraph()
-            sem_p.alignment = sem_cell.paragraphs[0].alignment
+            sem_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
             _apply_rpr(sem_p.add_run("{{ semester_label }}"), rpr)
         for row in table.rows:
             # «Общая трудоёмкость» в c0, а единица («зач. ед.»/«ак.ч.») — в c1
