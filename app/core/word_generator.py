@@ -115,14 +115,16 @@ class DocxtplGenerator:
             "hours_lab": subject.hours_lab or "-",
             "hours_project": subject.hours_project or "-",
             "hours_extra_contact": max(subject.hours_contact - subject.hours_aud, 0),
-            # «Часы самостоятельной работы» в форме = чистая СРС из Базы
-            # (часы контроля в таблице эталона не отображаются).
-            "hours_self_study": subject.hours_srs,
+            # «Часы самостоятельной работы» = СР + Контроль (формула кафедры;
+            # контактная + самостоятельная = всего — см. проверку в differ).
+            "hours_self_study": subject.hours_srs + subject.hours_control,
             "control_summary": subject.control_summary,
             # Вид аттестации строчными, без семестра — обе ячейки таблицы §3
             # эталона: «экзамен | экзамен».
             "control_kind": ", ".join(dict.fromkeys(cf.kind.value for cf in subject.control_forms)).lower(),
             "semesters": ", ".join(str(s) for s in subject.semesters),
+            # «4 семестр» в шапке колонки «Кол-во часов в семестре» таблицы §3.
+            "semester_label": _semester_label(subject.semesters),
             "department": subject.department or "",
             # «заседания кафедры математических методов…» — род. падеж контекста,
             # первая буква строчная (как в эталонах); аббревиатуры не трогаем.
@@ -269,8 +271,9 @@ class DocxtplGenerator:
     # ------------------------------------------------------------------ #
     @staticmethod
     def _hl(run, highlight: bool) -> None:
-        if highlight:
-            run.font.highlight_color = WD_COLOR_INDEX.YELLOW
+        # Жёлтая подсветка отключена по решению кафедры (документы сдаются
+        # без выделения); параметр сохранён для точек вызова.
+        return
 
     def _add_text(self, sd, text: str, *, highlight: bool, font_size_pt: float | None = None) -> None:
         run = sd.add_paragraph().add_run(text)
@@ -587,8 +590,7 @@ def _fill_topics_table(docx, block: ContentBlock | None, subject: SubjectData) -
             cell.text = ""
             for pi, line in enumerate(text.split("\n")):
                 paragraph = cell.paragraphs[0] if pi == 0 else cell.add_paragraph()
-                run = paragraph.add_run(line)
-                run.font.highlight_color = WD_COLOR_INDEX.YELLOW
+                paragraph.add_run(line)
 
     for i, cells in enumerate(topic_rows):
         row_total = sum(_to_num(scaled[key][i].replace(',', '.')) or 0 for key in order)
@@ -662,6 +664,14 @@ def _apply_body_justify(docx) -> None:
 def _dot(text: str) -> str:
     """Завершающая точка, как в эталонных абзацах §2."""
     return text if text.endswith(".") else text + "."
+
+
+def _semester_label(semesters: tuple[int, ...]) -> str:
+    """«4 семестр» / «1, 2 семестры» для шапки таблицы «Структура и объем»."""
+    if not semesters:
+        return ""
+    word = "семестр" if len(semesters) == 1 else "семестры"
+    return f"{', '.join(str(s) for s in semesters)} {word}"
 
 
 def _decapitalize(text: str) -> str:

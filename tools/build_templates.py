@@ -89,10 +89,9 @@ def clear(paragraph: Paragraph) -> None:
 
 
 def hl_run(run) -> None:
-    """Жёлтая заливка шрифта на run (рендеренное значение тега будет жёлтым)."""
-    from docx.enum.text import WD_COLOR_INDEX
-
-    run.font.highlight_color = WD_COLOR_INDEX.YELLOW
+    """Подсветка значений отключена по решению кафедры (раньше — жёлтая
+    заливка всего заполненного); точки вызова сохранены."""
+    return
 
 
 def set_value_tag(paragraph: Paragraph, tag: str) -> None:
@@ -192,6 +191,19 @@ def n(text: str) -> str:
 # --------------------------------------------------------------------------- #
 #  РПД
 # --------------------------------------------------------------------------- #
+def _style_letterhead(doc: Document) -> None:
+    """Верхняя шапка титула («Федеральное государственное …», «„ГУУ“») —
+    Tahoma 12 (требование кафедры; в форме размер не задан явно)."""
+    from docx.shared import Pt
+
+    for p in doc.paragraphs:
+        if not p.text.strip():
+            break
+        for run in p.runs:
+            run.font.name = "Tahoma"
+            run.font.size = Pt(12)
+
+
 def tag_rpd(src: Path, dst: Path) -> None:
     doc = Document(str(src))
     to_remove: list[Paragraph] = []
@@ -241,6 +253,8 @@ def tag_rpd(src: Path, dst: Path) -> None:
             p.paragraph_format.page_break_before = True
     for p in to_remove:
         remove_paragraph(p)
+
+    _style_letterhead(doc)
 
     # --- Таблица часов: значения из Excel --- #
     _tag_hours_table(doc)
@@ -384,6 +398,14 @@ def _tag_hours_table(doc: Document) -> None:
             ]
             if not any(own_texts):
                 row._tr.getparent().remove(row._tr)
+        # «4 семестр» в шапке колонки «Кол-во часов в семестре (ак.ч.)».
+        header_row = table.rows[0]
+        if len(header_row.cells) > 3:
+            sem_cell = header_row.cells[3]
+            rpr = _capture_rpr(sem_cell.paragraphs[0])
+            sem_p = sem_cell.add_paragraph()
+            sem_p.alignment = sem_cell.paragraphs[0].alignment
+            _apply_rpr(sem_p.add_run("{{ semester_label }}"), rpr)
         for row in table.rows:
             # «Общая трудоёмкость» в c0, а единица («зач. ед.»/«ак.ч.») — в c1
             label = n(row.cells[0].text + " " + (row.cells[1].text if len(row.cells) > 1 else ""))
@@ -447,6 +469,7 @@ def tag_fos(src: Path, dst: Path) -> None:
         elif "государственной итоговой" in t:
             gia_heading = p
 
+    _style_letterhead(doc)
     if gia_heading is not None:
         # Раздела 3 нет вовсе, если дисциплина не участвует в ГИА (исходный ФОС
         # без блока ГИА): заголовок + контент под jinja-условием.

@@ -147,8 +147,8 @@ def test_generate_uses_excel_numbers(
     xml = zipfile.ZipFile(out).read("word/document.xml").decode("utf-8", "replace")
     # Литература переформатирована из таблицы в список — автор присутствует.
     assert "Иванов" in xml
-    # Жёлтая подсветка заполненного присутствует.
-    assert '<w:highlight w:val="yellow"' in xml
+    # Подсветка отключена по решению кафедры.
+    assert '<w:highlight w:val="yellow"' not in xml
 
 
 def test_competencies_built_from_base(
@@ -276,9 +276,11 @@ def test_generate_fills_official_topics_table(
     assert tema[6] == "11"     # итого по строке
     itogo = next(r for r in rows if r[1] == "ИТОГО")
     assert itogo[2:] == ["12", "10", "-", "6", "28"]  # числа Базы (aud=28)
-    # заполненные ячейки подсвечены
     xml = zipfile.ZipFile(out).read("word/document.xml").decode("utf-8", "replace")
-    assert "Тема-АБВ" in xml and '<w:highlight w:val="yellow"' in xml
+    assert "Тема-АБВ" in xml and '<w:highlight w:val="yellow"' not in xml
+    # Семестр прописан в шапке колонки «Кол-во часов в семестре».
+    hours = next(t for t in doc.tables if "Вид учебной работы" in t.rows[0].cells[0].text)
+    assert "1 семестр" in hours.rows[0].cells[3].text
 
 
 def test_generate_fos(

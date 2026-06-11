@@ -65,3 +65,21 @@ def test_ze_float_formatting() -> None:
     diffs = compute_diffs(old, _subject())
     rec = next(d for d in diffs if d.field == "Зачётные единицы (з.е.)")
     assert rec.old_value == "4" and rec.new_value == "3"
+
+
+def test_hours_consistency_check() -> None:
+    # Проверка кафедры: контактная + (СР + Контроль) должна равняться всего.
+    from app.core.differ import hours_consistency_check
+    from app.core.models import SubjectData
+
+    ok = SubjectData(index="Б1.В.08", name="ИСиТ", ze=2.0, hours_total=72,
+                     hours_contact=37, hours_srs=9, hours_control=26)
+    assert hours_consistency_check(ok) is None
+
+    bad = SubjectData(index="Б1.В.08", name="ИСиТ", ze=2.0, hours_total=72,
+                      hours_contact=37, hours_srs=9, hours_control=20)
+    diff = hours_consistency_check(bad)
+    assert diff is not None
+    assert "контактная + самостоятельная" in diff.field
+    assert diff.old_value == "37 + 29 = 66"
+    assert diff.new_value == "72"

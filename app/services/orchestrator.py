@@ -29,7 +29,7 @@ import anyio
 import polars as pl
 
 from app.config import settings
-from app.core.differ import compute_diffs
+from app.core.differ import compute_diffs, hours_consistency_check
 from app.core.doc_converter import WordComConverter
 from app.core.excel_parser import ExcelSubjectRepository, load_repository
 from app.core.exceptions import (
@@ -243,11 +243,15 @@ class Orchestrator:
         # 4. Контент из старого документа.
         content = self.extractor.extract(docx_path, doc_type)
 
-        # 5. Diff старых чисел с эталоном (только для РПД — там есть таблица часов).
+        # 5. Diff старых чисел с эталоном (только для РПД — там есть таблица часов)
+        # + проверка целостности часов самой Базы (для всех типов).
         diffs = []
         if doc_type == DocType.RPD:
             old = self.extractor.extract_old_numbers(docx_path)
             diffs = compute_diffs(old, subject)
+        hours_check = hours_consistency_check(subject)
+        if hours_check is not None:
+            diffs.append(hours_check)
 
         # 6. Генерация (числа из Excel, текст из Word).
         template = self.rpd_template if doc_type == DocType.RPD else self.fos_template

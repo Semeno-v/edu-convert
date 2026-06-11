@@ -74,6 +74,23 @@ def compute_diffs(old: OldNumbers, subject: SubjectData) -> list[DiffRecord]:
     return diffs
 
 
+def hours_consistency_check(subject: SubjectData) -> DiffRecord | None:
+    """Проверка кафедры: контактная + самостоятельная (СР + Контроль) = всего.
+
+    Несоответствие означает ошибку в самой Базе — фиксируется в отчёте,
+    чтобы методист увидел проблему до сдачи документа.
+    """
+    self_study = subject.hours_srs + subject.hours_control
+    total = subject.hours_contact + self_study
+    if total == subject.hours_total:
+        return None
+    return DiffRecord(
+        field="Проверка часов Базы: контактная + самостоятельная ≠ всего",
+        old_value=f"{subject.hours_contact} + {self_study} = {total}",
+        new_value=str(subject.hours_total),
+    )
+
+
 def _control_kind(raw: str) -> str | None:
     norm = normalize_text(raw)
     for kw in _CONTROL_KEYWORDS:

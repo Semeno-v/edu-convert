@@ -92,10 +92,26 @@ def test_rpd_template_has_expected_tags() -> None:
         assert tag in tags, f"в шаблоне РПД нет тега {tag}"
 
 
-def test_rpd_template_has_yellow_highlight_tags() -> None:
-    # Теги-значения (часы, титул, §8) размечены жёлтым → рендеренные значения
-    # будут подсвечены.
+def test_template_no_yellow_highlight(template_path: Path) -> None:
+    # Подсветка отключена по решению кафедры — в шаблонах её быть не должно.
     import zipfile
 
-    xml = zipfile.ZipFile(settings.rpd_template).read("word/document.xml").decode("utf-8", "replace")
-    assert '<w:highlight w:val="yellow"' in xml
+    xml = zipfile.ZipFile(template_path).read("word/document.xml").decode("utf-8", "replace")
+    assert '<w:highlight w:val="yellow"' not in xml
+
+
+def test_rpd_template_letterhead_tahoma12() -> None:
+    # Верхняя шапка титула — Tahoma 12 (требование кафедры).
+    doc = Document(str(settings.rpd_template))
+    first = doc.paragraphs[0]
+    assert "Федеральное" in first.text
+    for run in first.runs:
+        assert run.font.name == "Tahoma"
+        assert run.font.size is not None and round(run.font.size.pt) == 12
+
+
+def test_rpd_template_semester_label_in_hours_header() -> None:
+    # Семестр прописывается в шапке колонки «Кол-во часов в семестре».
+    doc = Document(str(settings.rpd_template))
+    hours = next(t for t in doc.tables if "Вид учебной работы" in t.rows[0].cells[0].text)
+    assert "{{ semester_label }}" in hours.rows[0].cells[3].text
