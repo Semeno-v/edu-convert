@@ -2,7 +2,8 @@
 
 Зона 1 интерфейса (ТЗ §5): выбор файла + зелёная галочка при успешной загрузке.
 Контурный вариант карточки, иконка в тонированном круге, галочка появляется
-с плавным изменением прозрачности.
+с плавным изменением прозрачности. При ``menu_items`` рядом с кнопкой «Выбрать»
+появляется PopupMenuButton с историей недавних файлов.
 """
 
 from __future__ import annotations
@@ -21,8 +22,30 @@ def UploadCard(
     ok: bool,
     icon: str,
     on_pick: Callable[[ft.Event[ft.Control]], None],
+    menu_items: list[tuple[str, Callable]] | None = None,
 ) -> ft.Control:
     """Карточка одного источника (база/шаблон РПД/шаблон ФОС)."""
+    action_controls: list[ft.Control] = [
+        ft.FilledTonalButton("Выбрать", icon=ft.Icons.FOLDER_OPEN, on_click=on_pick),
+    ]
+    if menu_items:
+        action_controls.append(
+            ft.PopupMenuButton(
+                icon=ft.Icons.HISTORY_ROUNDED,
+                icon_color=ft.Colors.ON_SURFACE_VARIANT,
+                icon_size=18,
+                tooltip="Недавние",
+                items=[
+                    ft.PopupMenuItem(
+                        content=ft.Text(label, size=12, max_lines=1,
+                                        overflow=ft.TextOverflow.ELLIPSIS),
+                        on_click=on_select,
+                    )
+                    for label, on_select in menu_items
+                ],
+            )
+        )
+
     return ft.Card(
         variant=ft.CardVariant.OUTLINED,
         content=ft.Container(
@@ -64,7 +87,7 @@ def UploadCard(
                             curve=ft.AnimationCurve.EASE_OUT,
                         ),
                     ),
-                    ft.FilledTonalButton("Выбрать", icon=ft.Icons.FOLDER_OPEN, on_click=on_pick),
+                    ft.Row(spacing=2, tight=True, controls=action_controls),
                 ],
             ),
         ),

@@ -22,7 +22,7 @@ from app import __version__
 from app.config import settings
 from app.core.models import FileResult
 from app.services.orchestrator import Orchestrator, RunResult
-from app.ui import theme
+from app.ui import persistence, theme
 from app.ui.components.file_list import FileList
 from app.ui.components.report_table import ReportTable
 from app.ui.components.section_card import SectionCard
@@ -31,15 +31,35 @@ from app.ui.components.upload_card import UploadCard
 _INPUT_SUFFIXES = {".doc", ".docx"}
 
 
-def _paste_clipboard_files(state: "AppState", page: ft.Page) -> None:
+def _plural_files(n: int) -> str:
+    """«1 файл», «2 файла», «5 файлов» — правила русского языка."""
+    if 11 <= (n % 100) <= 14:
+        return f"{n} файлов"
+    r = n % 10
+    if r == 1:
+        return f"{n} файл"
+    if 2 <= r <= 4:
+        return f"{n} файла"
+    return f"{n} файлов"
+
+
+def _snack(page: ft.Page, message: str) -> None:
+    page.show_dialog(ft.SnackBar(
+        content=ft.Text(message),
+        behavior=ft.SnackBarBehavior.FLOATING,
+        duration=ft.Duration(milliseconds=2500),
+        show_close_icon=True,
+    ))
+
+
+def _paste_clipboard_files(state: "AppState", page: ft.Page) -> int:
     """Читает пути .doc/.docx из CF_HDROP буфера обмена.
 
-    Пользователь выделяет файлы в Проводнике → Ctrl+C → переключается
-    в приложение → Ctrl+V — файлы добавляются в список.
+    Возвращает количество фактически добавленных файлов.
     Только для десктопа: на вебе буфер обмена недоступен.
     """
     if page.web:
-        return
+        return 0
     try:
         import win32clipboard  # noqa: PLC0415
         import win32con        # noqa: PLC0415
@@ -47,11 +67,33 @@ def _paste_clipboard_files(state: "AppState", page: ft.Page) -> None:
         try:
             if win32clipboard.IsClipboardFormatAvailable(win32con.CF_HDROP):
                 paths = list(win32clipboard.GetClipboardData(win32con.CF_HDROP))
+                before = len(state.input_files)
                 state.add_files(paths)
+                return len(state.input_files) - before
         finally:
             win32clipboard.CloseClipboard()
     except Exception:  # noqa: BLE001
         pass
+    return 0
+
+
+def _make_initial_state() -> "AppState":
+    """Создаёт AppState с путями, восстановленными из сохранённых настроек."""
+    saved = persistence.load()
+    state = AppState()
+    if db := saved.get("db_path"):
+        p = Path(db)
+        if p.exists():
+            state.db_path = p
+    if rpd := saved.get("rpd_path"):
+        p = Path(rpd)
+        if p.exists():
+            state.rpd_path = p
+    if fos := saved.get("fos_path"):
+        p = Path(fos)
+        if p.exists():
+            state.fos_path = p
+    return state
 
 # Очистка temp последнего прогона при выходе из приложения (ТЗ §7.3):
 # без этого workdir и ZIP последнего запуска оставались на диске навсегда.
@@ -205,11 +247,37 @@ def _counter_pill(count: int) -> ft.Control:
 
 @ft.component
 def App() -> ft.Control:
-    state, _ = ft.use_state(AppState())
+    state, _ = ft.use_state(_make_initial_state())
+    page = ft.context.page
 
     # Регистрируем state в page.data, чтобы клавиатурный обработчик из main()
     # мог добавлять файлы в правильный экземпляр AppState.
-    ft.context.page.data["state"] = state
+    page.data["state"] = state
+
+    # Идея 4: авто-сохранение путей при изменении
+    def _save_paths() -> None:
+        persistence.save_paths(
+            str(state.db_path) if state.db_path else None,
+            str(state.rpd_path),
+            str(state.fos_path),
+        )
+
+    ft.use_effect(_save_paths, dependencies=[state.db_path, state.rpd_path, state.fos_path])
+
+    # Идея 9: добавляем базу в историю при успешном выборе
+    def _update_recent_db() -> None:
+        if state.db_path and state.db_path.exists():
+            persistence.add_recent_db(str(state.db_path))
+
+    ft.use_effect(_update_recent_db, dependencies=[state.db_path])
+
+    # Идея 9: список недавних баз (кроме текущей, только существующие)
+    recent_dbs = persistence.get_recent_dbs()
+    recent_db_items = [
+        (Path(p).name, lambda e, p=p: state.set_db(p))
+        for p in recent_dbs
+        if Path(p) != state.db_path
+    ]
 
 # FilePicker-сервисы (создаются один раз, монтируются в дерево). В Flet 0.85
     # методы pick_files/get_directory_path/save_file асинхронные и возвращают
@@ -254,16 +322,23 @@ def App() -> ft.Control:
         # контрола из props компонента, в Flet 0.85 не срабатывает
         await state.start(e)
 
+    # Идея 2: секции помечаются выполненными
+    sec1_done = state.db_ok and state.rpd_ok and state.fos_ok
+    sec2_done = bool(state.input_files)
+    sec3_done = state.done
+
     # --- Зона 1: базовые файлы --- #
     settings_zone = SectionCard(
         number="1",
         title="Базовые файлы",
         subtitle="База дисциплин и официальные шаблоны 2026",
+        done=sec1_done,
         content=ft.Column(
             spacing=8,
             controls=[
                 UploadCard("База данных (Excel)", _name(state.db_path), state.db_ok,
-                           ft.Icons.TABLE_VIEW, pick_db),
+                           ft.Icons.TABLE_VIEW, pick_db,
+                           menu_items=recent_db_items or None),   # идея 9
                 UploadCard("Шаблон РПД (2026)", _name(state.rpd_path), state.rpd_ok,
                            ft.Icons.DESCRIPTION, pick_rpd),
                 UploadCard("Шаблон ФОС (2026)", _name(state.fos_path), state.fos_ok,
@@ -273,8 +348,16 @@ def App() -> ft.Control:
     )
 
     # --- Зона 2: исходные документы --- #
+    # Идея 1: snackbar при вставке
     def _do_paste(e: ft.Event[ft.Control]) -> None:
-        _paste_clipboard_files(state, ft.context.page)
+        added = _paste_clipboard_files(state, page)
+        msg = f"Добавлено {_plural_files(added)}" if added else "Новых .doc/.docx не найдено"
+        _snack(page, msg)
+
+    # Идея 1: snackbar при удалении одного файла
+    def _remove_with_snack(path: Path) -> None:
+        state.remove_file(path)
+        _snack(page, f"Убран: {path.name}")
 
     pick_buttons: list[ft.Control] = [
         ft.FilledButton("Выбрать файлы", icon=ft.Icons.NOTE_ADD, on_click=pick_inputs),
@@ -289,10 +372,15 @@ def App() -> ft.Control:
                           on_click=lambda e: state.clear_inputs())
         )
 
+    # Идея 5: ключ из имён файлов гарантирует срабатывание AnimatedSwitcher
+    # при любом изменении (в т.ч. при добавлении, когда count не меняется)
+    file_list_key = ",".join(p.name for p in state.input_files)
+
     files_zone = SectionCard(
         number="2",
         title="Исходные документы",
         subtitle="Старые РПД и ФОС (.doc / .docx)",
+        done=sec2_done,
         trailing=_counter_pill(len(state.input_files)),
         content=ft.Column(
             spacing=12,
@@ -327,7 +415,15 @@ def App() -> ft.Control:
                         ],
                     ),
                 ),
-                FileList(state.input_files, state.remove_file),
+                # Идея 5: список файлов появляется/обновляется с плавным fade
+                ft.AnimatedSwitcher(
+                    duration=ft.Duration(milliseconds=200),
+                    transition=ft.AnimatedSwitcherTransition.FADE,
+                    content=ft.Container(
+                        key=file_list_key or "empty-list",
+                        content=FileList(state.input_files, _remove_with_snack),
+                    ),
+                ),
             ],
         ),
     )
@@ -359,9 +455,20 @@ def App() -> ft.Control:
     else:
         progress_block = []
 
+    # Идея 3: tooltip объясняет, почему кнопка заблокирована
+    def _start_tooltip() -> str | None:
+        if state.running:
+            return "Идёт конвертация…"
+        if not (state.db_ok and state.rpd_ok and state.fos_ok):
+            return "Сначала выберите все три базовых файла (шаг 1)"
+        if not state.input_files:
+            return "Добавьте хотя бы один файл РПД/ФОС (шаг 2)"
+        return None
+
     control_zone = SectionCard(
         number="3",
         title="Конвертация",
+        done=sec3_done,
         content=ft.Column(
             spacing=12,
             controls=[
@@ -369,6 +476,7 @@ def App() -> ft.Control:
                     "Начать конвертацию",
                     icon=ft.Icons.PLAY_ARROW_ROUNDED,
                     disabled=not state.ready,
+                    tooltip=_start_tooltip(),
                     on_click=start_conversion,
                     height=48,
                     style=ft.ButtonStyle(
@@ -524,7 +632,9 @@ def main(page: ft.Page) -> None:
     async def on_keyboard(e: ft.KeyboardEvent) -> None:
         state: AppState | None = page.data.get("state")
         if e.ctrl and e.key.lower() == "v" and state is not None:
-            _paste_clipboard_files(state, page)
+            added = _paste_clipboard_files(state, page)
+            msg = f"Добавлено {_plural_files(added)}" if added else "Новых .doc/.docx не найдено"
+            _snack(page, msg)
 
     page.on_keyboard_event = on_keyboard
     page.render(App)
