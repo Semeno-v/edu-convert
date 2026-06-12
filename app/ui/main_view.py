@@ -30,6 +30,29 @@ from app.ui.components.upload_card import UploadCard
 
 _INPUT_SUFFIXES = {".doc", ".docx"}
 
+
+def _paste_clipboard_files(state: "AppState", page: ft.Page) -> None:
+    """Читает пути .doc/.docx из CF_HDROP буфера обмена.
+
+    Пользователь выделяет файлы в Проводнике → Ctrl+C → переключается
+    в приложение → Ctrl+V — файлы добавляются в список.
+    Только для десктопа: на вебе буфер обмена недоступен.
+    """
+    if page.web:
+        return
+    try:
+        import win32clipboard  # noqa: PLC0415
+        import win32con        # noqa: PLC0415
+        win32clipboard.OpenClipboard()
+        try:
+            if win32clipboard.IsClipboardFormatAvailable(win32con.CF_HDROP):
+                paths = list(win32clipboard.GetClipboardData(win32con.CF_HDROP))
+                state.add_files(paths)
+        finally:
+            win32clipboard.CloseClipboard()
+    except Exception:  # noqa: BLE001
+        pass
+
 # Очистка temp последнего прогона при выходе из приложения (ТЗ §7.3):
 # без этого workdir и ZIP последнего запуска оставались на диске навсегда.
 _pending_cleanup: list[RunResult] = []
@@ -184,7 +207,11 @@ def _counter_pill(count: int) -> ft.Control:
 def App() -> ft.Control:
     state, _ = ft.use_state(AppState())
 
-    # FilePicker-сервисы (создаются один раз, монтируются в дерево). В Flet 0.85
+    # Регистрируем state в page.data, чтобы клавиатурный обработчик из main()
+    # мог добавлять файлы в правильный экземпляр AppState.
+    ft.context.page.data["state"] = state
+
+# FilePicker-сервисы (создаются один раз, монтируются в дерево). В Flet 0.85
     # методы pick_files/get_directory_path/save_file асинхронные и возвращают
     # результат напрямую (без on_result).
     db_picker = ft.use_ref(lambda: ft.FilePicker())
@@ -246,9 +273,15 @@ def App() -> ft.Control:
     )
 
     # --- Зона 2: исходные документы --- #
+    def _do_paste(e: ft.Event[ft.Control]) -> None:
+        _paste_clipboard_files(state, ft.context.page)
+
     pick_buttons: list[ft.Control] = [
         ft.FilledButton("Выбрать файлы", icon=ft.Icons.NOTE_ADD, on_click=pick_inputs),
         ft.OutlinedButton("Выбрать папку", icon=ft.Icons.FOLDER, on_click=pick_dir),
+        ft.OutlinedButton("Вставить", icon=ft.Icons.CONTENT_PASTE_ROUNDED,
+                          tooltip="Скопируйте файлы в Проводнике (Ctrl+C), затем нажмите кнопку или Ctrl+V",
+                          on_click=_do_paste),
     ]
     if state.input_files:  # «Очистить» видна только при непустом списке
         pick_buttons.append(
@@ -278,6 +311,19 @@ def App() -> ft.Control:
                                     size=14, text_align=ft.TextAlign.CENTER),
                             ft.Row(alignment=ft.MainAxisAlignment.CENTER, spacing=10,
                                    controls=pick_buttons),
+                            ft.Row(
+                                alignment=ft.MainAxisAlignment.CENTER,
+                                spacing=4,
+                                controls=[
+                                    ft.Icon(ft.Icons.KEYBOARD_ROUNDED, size=13,
+                                            color=ft.Colors.ON_SURFACE_VARIANT),
+                                    ft.Text(
+                                        "Ctrl+C в Проводнике → Ctrl+V сюда",
+                                        size=11, italic=True,
+                                        color=ft.Colors.ON_SURFACE_VARIANT,
+                                    ),
+                                ],
+                            ),
                         ],
                     ),
                 ),
@@ -466,12 +512,21 @@ def main(page: ft.Page) -> None:
     page.theme_mode = ft.ThemeMode.LIGHT  # только светлая тема (решение кафедры)
     page.theme = theme.build_theme()
     page.padding = 0
+    page.data = {}  # разделяемый словарь между main() и компонентами
+
     if not page.web:  # свойства окна применимы только на десктопе
         page.window.width = 920
         page.window.height = 780
         page.window.min_width = 760
         page.window.min_height = 620
         page.window.alignment = ft.Alignment.CENTER
+
+    async def on_keyboard(e: ft.KeyboardEvent) -> None:
+        state: AppState | None = page.data.get("state")
+        if e.ctrl and e.key.lower() == "v" and state is not None:
+            _paste_clipboard_files(state, page)
+
+    page.on_keyboard_event = on_keyboard
     page.render(App)
 
 
