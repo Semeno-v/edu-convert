@@ -293,6 +293,21 @@ def test_generate_fos(
     assert "Б1.О.01" in xml  # индекс на титуле
 
 
+@pytest.mark.parametrize("doc_type", [DocType.RPD, DocType.FOS])
+def test_title_discipline_name_uppercased(
+    generator: DocxtplGenerator, subject: SubjectData, content: ContentBlocks,
+    tmp_path: Path, doc_type: DocType,
+) -> None:
+    # Название дисциплины на титуле выводится прописными буквами (тег {{ name }}).
+    template = settings.rpd_template if doc_type == DocType.RPD else settings.fos_template
+    out = tmp_path / f"title_{doc_type.value}.docx"
+    generator.generate(template, out, subject, content, doc_type)
+    xml = zipfile.ZipFile(out).read("word/document.xml").decode("utf-8", "replace")
+    assert "ТЕСТОВАЯ ДИСЦИПЛИНА" in xml       # название — прописными
+    assert "Тестовая дисциплина" not in xml   # исходный регистр не просочился
+    assert "Б1.О.01" in xml                   # индекс рядом — без изменений
+
+
 def test_fos_body_format_and_indicators(
     generator: DocxtplGenerator, subject: SubjectData, tmp_path: Path
 ) -> None:

@@ -104,7 +104,11 @@ class DocxtplGenerator:
         # Скалярные значения; их жёлтая подсветка задаётся в шаблоне на тегах.
         context: dict[str, object] = {
             "index": subject.index,
-            "name": subject.name,
+            # Название дисциплины на титуле — прописными (требование кафедры).
+            # Тег {{ name }} в шаблонах используется только на титульном листе,
+            # поэтому регистр поднимается здесь, в контексте (subject.name —
+            # для имён файлов и отчёта — остаётся без изменений).
+            "name": subject.name.upper(),
             "ze": _num(subject.ze),
             "hours_total": subject.hours_total,
             "hours_contact": subject.hours_contact,
