@@ -1,0 +1,52 @@
+[project]
+name = "edu-convert"
+version = "0.1.0"
+description = "Автоматизированная конвертация РПД и ФОС в целевые шаблоны 2026 (числа из Базы, текст из исходников)."
+readme = "README.md"
+requires-python = ">=3.14"
+license = { text = "MIT" }
+dependencies = [
+    "fastapi>=0.136",
+    "uvicorn[standard]>=0.34",
+    "anyio>=4.13",
+    "flet>=0.85",
+    "flet-web>=0.85",
+    "polars>=1.21",
+    "fastexcel>=0.12",
+    "xlsxwriter>=3.2",
+    "python-docx>=1.2",
+    "docxtpl>=0.20",
+    "docxcompose>=1.4",
+    "pydantic>=2.11",
+    "pydantic-settings>=2.7",
+    "pywin32>=306; sys_platform == 'win32'",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.3", "pytest-cov>=6.0", "pytest-asyncio>=0.24", "tox>=4.23"]
+
+[project.scripts]
+educonvert = "app.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["app", "app.core", "app.services", "app.ui", "app.ui.components"]
+
+# --------------------------------------------------------------------------- #
+#  Тесты и покрытие
+# --------------------------------------------------------------------------- #
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+addopts = "-q"
+
+[tool.coverage.run]
+source = ["app.core.normalizer", "app.core.word_extractor"]
+
+[tool.coverage.report]
+show_missing = true
+# Ключевая бизнес-логика в core/ покрывается не менее чем на 95% (ТЗ §7.5).
+fail_under = 95

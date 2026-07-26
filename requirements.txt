@@ -1,0 +1,32 @@
+# EduConvert — зависимости (Python 3.14+)
+# Backend / оркестрация
+fastapi>=0.136
+uvicorn[standard]>=0.34
+anyio>=4.13
+
+# UI (декларативный Flet)
+flet>=0.85
+flet-web>=0.85           # веб/FastAPI-хостинг Flet (маунтинг в FastAPI)
+
+# Данные
+polars>=1.21
+fastexcel>=0.12          # движок calamine для чтения xlsx через polars
+xlsxwriter>=3.2          # запись report.xlsx через polars.write_excel
+
+# Word
+python-docx>=1.2
+docxtpl>=0.20
+docxcompose>=1.4          # требуется docxtpl для subdoc-вставок
+
+# Конвертация .doc -> .docx (Windows, MS Word COM)
+pywin32>=306; sys_platform == "win32"
+
+# Валидация / настройки
+pydantic>=2.11
+pydantic-settings>=2.7
+
+# Тесты / качество
+pytest>=8.3
+pytest-cov>=6.0
+pytest-asyncio>=0.24
+tox>=4.23
