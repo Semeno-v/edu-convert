@@ -43,17 +43,17 @@ def Pill(
     fg = fg or ft.Colors.ON_SURFACE_VARIANT
     controls: list[ft.Control] = []
     if icon:
-        controls.append(ft.Icon(icon, size=13, color=fg))
+        controls.append(ft.Icon(icon, size=16 if compact else 18, color=fg))
     controls.append(
-        ft.Text(label, size=11 if compact else 12, weight=ft.FontWeight.W_600, color=fg)
+        ft.Text(label, size=14 if compact else 15, weight=ft.FontWeight.W_600, color=fg)
     )
     return ft.Container(
         bgcolor=bg or ft.Colors.SURFACE_CONTAINER_HIGH,
         border_radius=theme.RADIUS_PILL,
         padding=ft.Padding.symmetric(
-            horizontal=8 if compact else 11, vertical=2 if compact else 4
+            horizontal=12 if compact else 16, vertical=5 if compact else 8
         ),
-        content=ft.Row(controls, spacing=5, tight=True),
+        content=ft.Row(controls, spacing=6, tight=True),
     )
 
 
@@ -65,26 +65,26 @@ def StatCard(label: str, value: int, total: int, fg: str, bg: str, icon: str) ->
         expand=True,
         bgcolor=bg,
         border_radius=theme.RADIUS_CONTROL,
-        padding=ft.Padding.symmetric(horizontal=14, vertical=12),
+        padding=ft.Padding.symmetric(horizontal=20, vertical=18),
         content=ft.Column(
-            spacing=8,
+            spacing=10,
             tight=True,
             controls=[
                 ft.Row(
-                    spacing=6,
+                    spacing=8,
                     vertical_alignment=ft.CrossAxisAlignment.CENTER,
                     controls=[
-                        ft.Icon(icon, size=15, color=fg),
+                        ft.Icon(icon, size=20, color=fg),
                         ft.Text(
-                            label, size=12, color=fg, weight=ft.FontWeight.W_600,
+                            label, size=15, color=fg, weight=ft.FontWeight.W_600,
                             expand=True, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS,
                         ),
                     ],
                 ),
-                ft.Text(str(value), size=26, weight=ft.FontWeight.BOLD, color=fg),
+                ft.Text(str(value), size=38, weight=ft.FontWeight.BOLD, color=fg),
                 ft.ProgressBar(
                     value=share,
-                    bar_height=4,
+                    bar_height=6,
                     color=fg,
                     bgcolor=ft.Colors.with_opacity(0.20, fg),
                     border_radius=theme.RADIUS_PILL,

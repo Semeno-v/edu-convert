@@ -29,6 +29,7 @@ def ActionBar(
     on_start: Callable[[ft.Event[ft.Control]], None],
     on_show_results: Callable[[ft.Event[ft.Control]], None],
     dark: bool = False,
+    gutter: int = theme.SPACE_LG,
 ) -> ft.Control:
     """Строка состояния и запуска, закреплённая внизу окна."""
     p = theme.palette(dark)
@@ -43,14 +44,14 @@ def ActionBar(
                     spacing=8,
                     vertical_alignment=ft.CrossAxisAlignment.CENTER,
                     controls=[
-                        ft.Text(f"{int(progress * 100)} %", size=13,
+                        ft.Text(f"{int(progress * 100)} %", size=16,
                                 weight=ft.FontWeight.BOLD, color=ft.Colors.PRIMARY),
-                        ft.Text(status or "Конвертация…", size=12, expand=True,
+                        ft.Text(status or "Конвертация…", size=15, expand=True,
                                 max_lines=1, overflow=ft.TextOverflow.ELLIPSIS,
                                 color=ft.Colors.ON_SURFACE_VARIANT),
                     ],
                 ),
-                ft.ProgressBar(value=progress, bar_height=6,
+                ft.ProgressBar(value=progress, bar_height=9,
                                border_radius=theme.RADIUS_PILL),
             ],
         )
@@ -87,7 +88,8 @@ def ActionBar(
                 on_click=on_show_results,
                 style=ft.ButtonStyle(
                     shape=ft.RoundedRectangleBorder(radius=theme.RADIUS_CONTROL),
-                    padding=ft.Padding.symmetric(horizontal=16, vertical=18),
+                    padding=ft.Padding.symmetric(horizontal=24, vertical=28),
+                    text_style=ft.TextStyle(size=16, weight=ft.FontWeight.W_600),
                 ),
             )
         )
@@ -102,8 +104,8 @@ def ActionBar(
             on_click=on_start,
             style=ft.ButtonStyle(
                 shape=ft.RoundedRectangleBorder(radius=theme.RADIUS_CONTROL),
-                padding=ft.Padding.symmetric(horizontal=22, vertical=20),
-                text_style=ft.TextStyle(size=14, weight=ft.FontWeight.W_600),
+                padding=ft.Padding.symmetric(horizontal=32, vertical=30),
+                text_style=ft.TextStyle(size=17, weight=ft.FontWeight.W_600),
             ),
         )
     )
@@ -111,10 +113,12 @@ def ActionBar(
     return ft.Container(
         bgcolor=p.card,
         border=ft.Border.only(top=ft.BorderSide(1, p.hairline)),
-        padding=ft.Padding.symmetric(horizontal=theme.SPACE_LG, vertical=12),
+        animate=theme.theme_motion(),
+        padding=ft.Padding.symmetric(horizontal=gutter, vertical=theme.SPACE_MD),
         content=ft.Row(
             spacing=theme.SPACE_MD,
             vertical_alignment=ft.CrossAxisAlignment.CENTER,
-            controls=[left, ft.Row(actions, spacing=8, tight=True)],
+            wrap=False,
+            controls=[left, ft.Row(actions, spacing=10, tight=True)],
         ),
     )

@@ -40,7 +40,6 @@ from app.ui.components.status_badge import Pill
 from app.ui.components.top_bar import TopBar
 
 _INPUT_SUFFIXES = {".doc", ".docx"}
-_NARROW_WIDTH = 900  # уже этого окно раскладывается в одну колонку
 
 SETUP = "setup"
 RESULTS = "results"
@@ -295,36 +294,36 @@ def _help_dialog(dark: bool) -> ft.AlertDialog:
             spacing=10,
             vertical_alignment=ft.CrossAxisAlignment.START,
             controls=[
-                ft.Icon(icon, size=16, color=ft.Colors.PRIMARY),
-                ft.Text(text, size=12.5, expand=True),
+                ft.Icon(icon, size=21, color=ft.Colors.PRIMARY),
+                ft.Text(text, size=15, expand=True),
             ],
         )
 
     def key(combo: str, text: str) -> ft.Control:
         return ft.Row(
-            spacing=10,
+            spacing=12,
             vertical_alignment=ft.CrossAxisAlignment.CENTER,
             controls=[
                 ft.Container(
-                    width=104,
+                    width=120,
                     bgcolor=ft.Colors.SURFACE_CONTAINER_HIGH,
-                    border_radius=6,
-                    padding=ft.Padding.symmetric(horizontal=8, vertical=4),
-                    content=ft.Text(combo, size=11, weight=ft.FontWeight.W_600),
+                    border_radius=8,
+                    padding=ft.Padding.symmetric(horizontal=10, vertical=6),
+                    content=ft.Text(combo, size=14, weight=ft.FontWeight.W_600),
                 ),
-                ft.Text(text, size=12.5, expand=True),
+                ft.Text(text, size=15, expand=True),
             ],
         )
 
     return ft.AlertDialog(
-        title=ft.Text("Как это работает", size=17, weight=ft.FontWeight.BOLD),
+        title=ft.Text("Как это работает", size=23, weight=ft.FontWeight.BOLD),
         shape=ft.RoundedRectangleBorder(radius=theme.RADIUS_CARD),
+        scrollable=True,
         content=ft.Container(
-            width=460,
+            width=580,
             content=ft.Column(
                 tight=True,
-                spacing=10,
-                scroll=ft.ScrollMode.AUTO,
+                spacing=12,
                 controls=[
                     line(ft.Icons.TABLE_VIEW_ROUNDED,
                          "Числа (зачётные единицы, часы, семестры) берутся из учебного "
@@ -361,6 +360,8 @@ def App() -> ft.Control:
         page.theme = theme.build_theme(state.dark)
         page.theme_mode = ft.ThemeMode.DARK if state.dark else ft.ThemeMode.LIGHT
         page.bgcolor = theme.palette(state.dark).canvas
+        # без этого Flutter меняет всю Material-палитру одним кадром
+        page.theme_animation_style = theme.theme_animation_style()
 
     ft.use_effect(_apply_theme, dependencies=[state.dark])
 
@@ -488,7 +489,7 @@ def App() -> ft.Control:
     }
 
     p = theme.palette(state.dark)
-    narrow = (page.width or 0) < _NARROW_WIDTH
+    lay = theme.layout_for(page.width)
 
     # --- левая колонка: источники данных --- #
     sources = Panel(
@@ -504,7 +505,7 @@ def App() -> ft.Control:
             compact=True,
         ),
         content=ft.Column(
-            spacing=8,
+            spacing=theme.SPACE_SM,
             controls=[
                 SourceTile("Учебный план (Excel)", _name(state.db_path), state.db_ok,
                            ft.Icons.TABLE_VIEW_ROUNDED, pick_db, state.dark,
@@ -528,7 +529,11 @@ def App() -> ft.Control:
         tips.append(_notice(state.error, ft.Icons.ERROR_OUTLINE_ROUNDED,
                             p.danger, p.danger_bg))
 
-    left_column = ft.Column(spacing=theme.SPACE_MD, controls=[sources, *tips])
+    left_column = ft.Column(spacing=lay.gap, tight=True, controls=[sources, *tips])
+
+    # На широком экране правая колонка тянется на всю высоту окна; в одной
+    # колонке она живёт внутри скролла, где растягиваться нельзя.
+    fill = lay.two_columns
 
     # --- правая колонка: документы или результаты --- #
     if state.view == RESULTS and state.results:
@@ -538,12 +543,14 @@ def App() -> ft.Control:
             border=ft.Border.all(1, p.hairline),
             border_radius=theme.RADIUS_CARD,
             shadow=theme.soft_shadow(state.dark),
-            padding=ft.Padding.all(theme.SPACE_MD),
+            animate=theme.theme_motion(),
+            padding=ft.Padding.all(theme.SPACE_LG),
             content=ResultsView(
                 state.results,
                 on_download=download,
                 on_back=lambda e: setattr(state, "view", SETUP),
                 dark=state.dark,
+                fill=fill,
             ),
         )
     else:
@@ -557,20 +564,23 @@ def App() -> ft.Control:
         ]
         if state.input_files and not state.running:
             header_actions.append(
-                ft.IconButton(icon=ft.Icons.DELETE_SWEEP_OUTLINED, icon_size=17,
+                ft.IconButton(icon=ft.Icons.DELETE_SWEEP_OUTLINED, icon_size=22,
                               tooltip="Очистить список (Ctrl+L)", on_click=clear_inputs)
             )
 
         right_content = ft.Container(
             key=f"setup-{len(state.input_files)}",
+            expand=fill,
             content=Panel(
                 title="Документы к конвертации",
                 subtitle="Старые РПД и ФОС в форматах .doc и .docx",
                 icon=ft.Icons.DRIVE_FOLDER_UPLOAD_OUTLINED,
                 dark=state.dark,
+                expand=fill,
                 trailing=ft.Row(header_actions, spacing=4, tight=True),
                 content=ft.Column(
-                    spacing=theme.SPACE_SM,
+                    spacing=theme.SPACE_MD,
+                    expand=fill,
                     horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
                     controls=[
                         PickZone(
@@ -579,14 +589,23 @@ def App() -> ft.Control:
                             on_paste=paste,
                             paste_hint=paste_hint,
                             dark=state.dark,
-                            compact=bool(state.input_files),
+                            compact=bool(state.input_files) or not lay.hero,
+                            # пустая панель: зона выбора занимает её целиком
+                            expand=fill and not state.input_files,
                         ),
-                        FileList(
-                            state.input_files,
-                            state.file_states,
-                            None if state.running else state.remove_file,
-                            state.dark,
-                            doc_unsupported=bool(doc_hint),
+                        *(
+                            [
+                                FileList(
+                                    state.input_files,
+                                    state.file_states,
+                                    None if state.running else state.remove_file,
+                                    state.dark,
+                                    doc_unsupported=bool(doc_hint),
+                                    fill=fill,
+                                )
+                            ]
+                            if state.input_files or not lay.hero
+                            else []
                         ),
                     ],
                 ),
@@ -594,6 +613,7 @@ def App() -> ft.Control:
         )
 
     right_column = ft.AnimatedSwitcher(
+        expand=fill,
         duration=ft.Duration(milliseconds=220),
         switch_in_curve=ft.AnimationCurve.EASE_OUT,
         switch_out_curve=ft.AnimationCurve.EASE_IN,
@@ -601,20 +621,22 @@ def App() -> ft.Control:
         content=right_content,
     )
 
-    if narrow:
-        workspace: ft.Control = ft.Column(
-            spacing=theme.SPACE_MD,
-            scroll=ft.ScrollMode.AUTO,
-            controls=[left_column, right_column],
-        )
-    else:
-        workspace = ft.Row(
-            spacing=theme.SPACE_MD,
+    if lay.two_columns:
+        workspace: ft.Control = ft.Row(
+            expand=True,
+            spacing=lay.gap,
             vertical_alignment=ft.CrossAxisAlignment.START,
             controls=[
-                ft.Container(width=340, content=left_column),
+                ft.Container(width=lay.side_width, content=left_column),
                 ft.Container(expand=True, content=right_column),
             ],
+        )
+    else:
+        workspace = ft.Column(
+            expand=True,
+            spacing=lay.gap,
+            scroll=ft.ScrollMode.AUTO,
+            controls=[left_column, right_column],
         )
 
     return ft.Column(
@@ -624,24 +646,22 @@ def App() -> ft.Control:
         controls=[
             TopBar(__version__, state.dark,
                    on_toggle_theme=lambda e: state.toggle_theme(),
-                   on_help=show_help),
+                   on_help=show_help,
+                   gutter=lay.gutter),
             ft.Container(
                 expand=True,
                 bgcolor=p.canvas,
+                animate=theme.theme_motion(),
                 padding=ft.Padding.symmetric(
-                    horizontal=theme.SPACE_LG, vertical=theme.SPACE_MD
+                    horizontal=lay.gutter, vertical=lay.gap
                 ),
-                # на широких мониторах колонка текста не должна растягиваться
-                # на всю ширину — держим читаемую меру по центру
+                # на широких мониторах контент не должен расползаться
+                # во всю ширину — держим читаемую меру по центру
                 alignment=ft.Alignment.TOP_CENTER,
                 content=ft.Container(
-                    width=min(page.width or theme.MAX_CONTENT_WIDTH,
-                              theme.MAX_CONTENT_WIDTH),
-                    content=ft.Column(
-                        expand=True,
-                        scroll=ft.ScrollMode.AUTO,
-                        controls=[workspace],
-                    ),
+                    expand=True,
+                    width=min(page.width or lay.max_width, lay.max_width),
+                    content=workspace,
                 ),
             ),
             ActionBar(
@@ -656,6 +676,7 @@ def App() -> ft.Control:
                 on_start=start_conversion,
                 on_show_results=lambda e: setattr(state, "view", RESULTS),
                 dark=state.dark,
+                gutter=lay.gutter,
             ),
         ],
     )
@@ -666,13 +687,14 @@ def _notice(text: str, icon: str, fg: str, bg: str) -> ft.Control:
     return ft.Container(
         bgcolor=bg,
         border_radius=theme.RADIUS_CONTROL,
-        padding=ft.Padding.all(12),
+        animate=theme.theme_motion(),
+        padding=ft.Padding.all(theme.SPACE_MD),
         content=ft.Row(
-            spacing=9,
+            spacing=theme.SPACE_SM,
             vertical_alignment=ft.CrossAxisAlignment.START,
             controls=[
-                ft.Icon(icon, size=17, color=fg),
-                ft.Text(text, size=12, color=fg, expand=True, selectable=True),
+                ft.Icon(icon, size=22, color=fg),
+                ft.Text(text, size=15, color=fg, expand=True, selectable=True),
             ],
         ),
     )
@@ -685,13 +707,14 @@ def main(page: ft.Page) -> None:
     page.theme_mode = (
         ft.ThemeMode.DARK if persistence.get_dark_mode() else ft.ThemeMode.LIGHT
     )
+    page.theme_animation_style = theme.theme_animation_style()
     page.padding = 0
     page.data = {}  # разделяемый словарь между main() и компонентами
 
     if not page.web:  # свойства окна применимы только на десктопе
-        page.window.width = 1180
-        page.window.height = 820
-        page.window.min_width = 720
+        page.window.width = 1560
+        page.window.height = 980
+        page.window.min_width = 600
         page.window.min_height = 600
         page.window.alignment = ft.Alignment.CENTER
 

@@ -30,26 +30,27 @@ def _diff_row(index: int, subject: str, field: str, old: str, new: str, dark: bo
     p = theme.palette(dark)
     return ft.Container(
         bgcolor=ft.Colors.SURFACE_CONTAINER_LOW if index % 2 else None,
-        padding=ft.Padding.symmetric(horizontal=12, vertical=9),
+        padding=ft.Padding.symmetric(horizontal=18, vertical=14),
         content=ft.Row(
-            spacing=10,
+            spacing=12,
             vertical_alignment=ft.CrossAxisAlignment.CENTER,
             controls=[
-                ft.Text(subject, size=12, expand=3, max_lines=1,
+                ft.Text(subject, size=15, expand=3, max_lines=1,
                         overflow=ft.TextOverflow.ELLIPSIS, tooltip=subject),
-                ft.Text(field, size=12, expand=4, max_lines=1,
+                ft.Text(field, size=15, expand=4, max_lines=1,
                         overflow=ft.TextOverflow.ELLIPSIS, tooltip=field),
                 ft.Row(
                     expand=3,
-                    spacing=6,
+                    spacing=8,
                     vertical_alignment=ft.CrossAxisAlignment.CENTER,
                     controls=[
-                        ft.Text(old, size=12, color=p.danger,
+                        ft.Text(old, size=15, color=p.danger,
                                 style=ft.TextStyle(
+                                    color=p.danger,
                                     decoration=ft.TextDecoration.LINE_THROUGH)),
-                        ft.Icon(ft.Icons.ARROW_RIGHT_ALT_ROUNDED, size=15,
+                        ft.Icon(ft.Icons.ARROW_RIGHT_ALT_ROUNDED, size=20,
                                 color=ft.Colors.ON_SURFACE_VARIANT),
-                        ft.Text(new, size=12, color=p.ok, weight=ft.FontWeight.W_700),
+                        ft.Text(new, size=15, color=p.ok, weight=ft.FontWeight.W_700),
                     ],
                 ),
             ],
@@ -59,25 +60,25 @@ def _diff_row(index: int, subject: str, field: str, old: str, new: str, dark: bo
 
 def _file_row(result: FileResult, dark: bool) -> ft.Control:
     return ft.Container(
-        padding=ft.Padding.symmetric(horizontal=12, vertical=8),
+        padding=ft.Padding.symmetric(horizontal=18, vertical=13),
         content=ft.Row(
-            spacing=10,
+            spacing=12,
             vertical_alignment=ft.CrossAxisAlignment.CENTER,
             controls=[
                 ft.Column(
-                    spacing=1,
+                    spacing=2,
                     expand=5,
                     tight=True,
                     controls=[
-                        ft.Text(result.filename, size=12.5, max_lines=1,
+                        ft.Text(result.filename, size=15, max_lines=1,
                                 overflow=ft.TextOverflow.ELLIPSIS,
                                 tooltip=result.filename),
-                        ft.Text(result.index or "индекс не определён", size=11,
+                        ft.Text(result.index or "индекс не определён", size=13,
                                 color=ft.Colors.ON_SURFACE_VARIANT),
                     ],
                 ),
                 ft.Container(StatusBadge(result.status, dark), expand=2),
-                ft.Text(result.message or "—", size=11, expand=5, max_lines=2,
+                ft.Text(result.message or "—", size=14, expand=5, max_lines=2,
                         color=ft.Colors.ON_SURFACE_VARIANT,
                         overflow=ft.TextOverflow.ELLIPSIS, tooltip=result.message),
             ],
@@ -87,21 +88,23 @@ def _file_row(result: FileResult, dark: bool) -> ft.Control:
 
 def _empty(text: str) -> ft.Control:
     return ft.Container(
-        padding=ft.Padding.symmetric(vertical=28),
+        padding=ft.Padding.symmetric(vertical=theme.SPACE_XL),
         alignment=ft.Alignment.CENTER,
         content=ft.Column(
             horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-            spacing=8,
+            tight=True,
+            spacing=10,
             controls=[
-                ft.Icon(ft.Icons.INBOX_ROUNDED, size=28, color=ft.Colors.OUTLINE),
-                ft.Text(text, size=12, italic=True, color=ft.Colors.ON_SURFACE_VARIANT),
+                ft.Icon(ft.Icons.INBOX_ROUNDED, size=40, color=ft.Colors.OUTLINE),
+                ft.Text(text, size=15, italic=True, color=ft.Colors.ON_SURFACE_VARIANT),
             ],
         ),
     )
 
 
-def _framed(content: ft.Control, dark: bool) -> ft.Control:
+def _framed(content: ft.Control, dark: bool, fill: bool = False) -> ft.Control:
     return ft.Container(
+        expand=fill,
         border=ft.Border.all(1, theme.palette(dark).hairline),
         border_radius=theme.RADIUS_CONTROL,
         clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
@@ -115,8 +118,9 @@ def ResultsView(
     on_download: Callable[[ft.Event[ft.Control]], None],
     on_back: Callable[[ft.Event[ft.Control]], None],
     dark: bool = False,
+    fill: bool = False,
 ) -> ft.Control:
-    """Панель результатов прогона с тремя представлениями."""
+    """Панель результатов; ``fill`` — растянуть таблицы на всю высоту окна."""
     tab, set_tab = ft.use_state(SUMMARY)
     query, set_query = ft.use_state("")
     p = theme.palette(dark)
@@ -135,8 +139,8 @@ def ResultsView(
         filled=True,
         border_radius=theme.RADIUS_CONTROL,
         border_color=p.hairline,
-        content_padding=ft.Padding.symmetric(horizontal=12, vertical=10),
-        text_size=13,
+        content_padding=ft.Padding.symmetric(horizontal=18, vertical=16),
+        text_size=16,
         on_change=lambda e: set_query(e.control.value),
     )
 
@@ -145,7 +149,7 @@ def ResultsView(
             spacing=theme.SPACE_MD,
             controls=[
                 ft.Row(
-                    spacing=10,
+                    spacing=theme.SPACE_MD,
                     controls=[
                         StatCard("Успешно", succeeded, total, p.ok, p.ok_bg,
                                  ft.Icons.CHECK_CIRCLE_ROUNDED),
@@ -158,16 +162,16 @@ def ResultsView(
                 ft.Container(
                     bgcolor=ft.Colors.SURFACE_CONTAINER_LOW,
                     border_radius=theme.RADIUS_CONTROL,
-                    padding=ft.Padding.all(14),
+                    padding=ft.Padding.all(theme.SPACE_MD),
                     content=ft.Column(
-                        spacing=6,
+                        spacing=8,
                         controls=[
                             ft.Row(
                                 spacing=8,
                                 controls=[
-                                    ft.Icon(ft.Icons.INFO_OUTLINE_ROUNDED, size=16,
+                                    ft.Icon(ft.Icons.INFO_OUTLINE_ROUNDED, size=21,
                                             color=ft.Colors.PRIMARY),
-                                    ft.Text("Что внутри архива", size=13,
+                                    ft.Text("Что внутри архива", size=17,
                                             weight=ft.FontWeight.W_600),
                                 ],
                             ),
@@ -176,7 +180,7 @@ def ResultsView(
                                 "и report.xlsx со всеми расхождениями. "
                                 "Всё, что подставила конвертация, выделено жёлтым; "
                                 "числа взяты из учебного плана.",
-                                size=12,
+                                size=15,
                                 color=ft.Colors.ON_SURFACE_VARIANT,
                             ),
                         ],
@@ -194,17 +198,20 @@ def ResultsView(
         ]
         body = ft.Column(
             spacing=theme.SPACE_SM,
+            expand=fill,
             controls=[
                 search,
                 _framed(
-                    ft.ListView(controls=rows, height=300) if rows
+                    ft.ListView(controls=rows, expand=fill,
+                                height=None if fill else 380) if rows
                     else _empty("Расхождений не найдено"),
                     dark,
+                    fill=fill,
                 ),
                 ft.Text(
                     "Слева — значение из старого документа, справа — из учебного плана "
                     "(записано в новый файл).",
-                    size=11,
+                    size=14,
                     color=ft.Colors.ON_SURFACE_VARIANT,
                 ),
             ],
@@ -216,12 +223,15 @@ def ResultsView(
         ]
         body = ft.Column(
             spacing=theme.SPACE_SM,
+            expand=fill,
             controls=[
                 search,
                 _framed(
-                    ft.ListView(controls=rows, height=300) if rows
+                    ft.ListView(controls=rows, expand=fill,
+                                height=None if fill else 380) if rows
                     else _empty("Ничего не найдено"),
                     dark,
+                    fill=fill,
                 ),
             ],
         )
@@ -232,16 +242,16 @@ def ResultsView(
         show_selected_icon=False,
         style=ft.ButtonStyle(
             shape=ft.RoundedRectangleBorder(radius=theme.RADIUS_CONTROL),
-            text_style=ft.TextStyle(size=12, weight=ft.FontWeight.W_600),
-            padding=ft.Padding.symmetric(horizontal=10, vertical=12),
+            text_style=ft.TextStyle(size=15, weight=ft.FontWeight.W_600),
+            padding=ft.Padding.symmetric(horizontal=16, vertical=18),
         ),
         segments=[
             ft.Segment(value=SUMMARY, label=ft.Text("Сводка"),
-                       icon=ft.Icon(ft.Icons.DONUT_LARGE_ROUNDED, size=15)),
+                       icon=ft.Icon(ft.Icons.DONUT_LARGE_ROUNDED, size=20)),
             ft.Segment(value=DIFFS, label=ft.Text(f"Расхождения · {len(diffs)}"),
-                       icon=ft.Icon(ft.Icons.COMPARE_ARROWS_ROUNDED, size=15)),
+                       icon=ft.Icon(ft.Icons.COMPARE_ARROWS_ROUNDED, size=20)),
             ft.Segment(value=FILES, label=ft.Text(f"Файлы · {total}"),
-                       icon=ft.Icon(ft.Icons.FOLDER_COPY_OUTLINED, size=15)),
+                       icon=ft.Icon(ft.Icons.FOLDER_COPY_OUTLINED, size=20)),
         ],
         on_change=lambda e: set_tab(next(iter(e.data), SUMMARY)),
     )
@@ -253,23 +263,23 @@ def ResultsView(
             ft.Container(
                 bgcolor=p.danger_bg,
                 border_radius=theme.RADIUS_CONTROL,
-                padding=ft.Padding.all(12),
+                padding=ft.Padding.all(theme.SPACE_MD),
                 content=ft.Column(
-                    spacing=4,
+                    spacing=6,
                     controls=[
                         ft.Row(
                             spacing=8,
                             controls=[
-                                ft.Icon(ft.Icons.SEARCH_OFF_ROUNDED, size=16,
+                                ft.Icon(ft.Icons.SEARCH_OFF_ROUNDED, size=21,
                                         color=p.danger),
-                                ft.Text(f"Не обработано: {len(failed_names)}", size=12,
+                                ft.Text(f"Не обработано: {len(failed_names)}", size=15,
                                         weight=ft.FontWeight.W_600, color=p.danger),
                             ],
                         ),
                         ft.Text(
                             ", ".join(r.filename for r in failed_names[:4])
                             + ("…" if len(failed_names) > 4 else ""),
-                            size=11,
+                            size=14,
                             color=p.danger,
                             max_lines=2,
                             overflow=ft.TextOverflow.ELLIPSIS,
@@ -281,26 +291,27 @@ def ResultsView(
 
     return ft.Column(
         spacing=theme.SPACE_MD,
+        expand=fill,
         controls=[
             ft.Row(
-                spacing=10,
+                spacing=theme.SPACE_SM,
                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
                 controls=[
                     ft.IconButton(
                         icon=ft.Icons.ARROW_BACK_ROUNDED,
-                        icon_size=18,
+                        icon_size=24,
                         tooltip="Вернуться к настройке",
                         on_click=on_back,
                     ),
                     ft.Column(
-                        spacing=1,
+                        spacing=2,
                         expand=True,
                         tight=True,
                         controls=[
-                            ft.Text("Результаты конвертации", size=17,
+                            ft.Text("Результаты конвертации", size=23,
                                     weight=ft.FontWeight.BOLD,
                                     color=ft.Colors.ON_SURFACE),
-                            ft.Text(f"Обработано документов: {total}", size=12,
+                            ft.Text(f"Обработано документов: {total}", size=15,
                                     color=ft.Colors.ON_SURFACE_VARIANT),
                         ],
                     ),
@@ -312,7 +323,8 @@ def ResultsView(
                         on_click=on_download,
                         style=ft.ButtonStyle(
                             shape=ft.RoundedRectangleBorder(radius=theme.RADIUS_CONTROL),
-                            padding=ft.Padding.symmetric(horizontal=16, vertical=18),
+                            padding=ft.Padding.symmetric(horizontal=26, vertical=28),
+                            text_style=ft.TextStyle(size=16, weight=ft.FontWeight.W_600),
                         ),
                     ),
                 ],

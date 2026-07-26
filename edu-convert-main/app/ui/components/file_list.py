@@ -16,8 +16,8 @@ import flet as ft
 
 from app.ui import theme
 
-_ROW_HEIGHT = 44
-_MAX_LIST_HEIGHT = 320
+_ROW_HEIGHT = 60
+_MAX_LIST_HEIGHT = 460
 
 # состояния строки
 QUEUED = "queued"
@@ -31,14 +31,14 @@ def _mark(state: str, dark: bool) -> ft.Control:
     """Индикатор состояния строки."""
     p = theme.palette(dark)
     if state == RUNNING:
-        return ft.ProgressRing(width=15, height=15, stroke_width=2)
+        return ft.ProgressRing(width=20, height=20, stroke_width=2.2)
     icon, color = {
         DONE: (ft.Icons.CHECK_CIRCLE_ROUNDED, p.ok),
         WARN: (ft.Icons.CHANGE_CIRCLE_ROUNDED, p.warn),
         FAILED: (ft.Icons.ERROR_ROUNDED, p.danger),
         QUEUED: (ft.Icons.SCHEDULE_ROUNDED, ft.Colors.OUTLINE),
     }[state]
-    return ft.Icon(icon, size=16, color=color)
+    return ft.Icon(icon, size=21, color=color)
 
 
 @ft.component
@@ -60,7 +60,7 @@ def FileRow(
         trailing.append(
             ft.Icon(
                 ft.Icons.WARNING_AMBER_ROUNDED,
-                size=16,
+                size=21,
                 color=p.warn,
                 tooltip="Формат .doc на этой системе не конвертируется",
             )
@@ -70,7 +70,7 @@ def FileRow(
         trailing.append(
             ft.IconButton(
                 icon=ft.Icons.CLOSE_ROUNDED,
-                icon_size=15,
+                icon_size=20,
                 icon_color=(
                     ft.Colors.ON_SURFACE_VARIANT if hovered
                     else ft.Colors.with_opacity(0.30, ft.Colors.ON_SURFACE_VARIANT)
@@ -84,32 +84,32 @@ def FileRow(
 
     return ft.Container(
         height=_ROW_HEIGHT,
-        padding=ft.Padding.only(left=10, right=4),
-        border_radius=10,
+        padding=ft.Padding.only(left=14, right=8),
+        border_radius=theme.RADIUS_CONTROL,
         bgcolor=p.card_hover if hovered else None,
         on_hover=lambda e: set_hovered(e.data),
         content=ft.Row(
-            spacing=9,
+            spacing=12,
             vertical_alignment=ft.CrossAxisAlignment.CENTER,
             controls=[
                 ft.Container(
-                    width=34,
-                    border_radius=6,
+                    width=46,
+                    border_radius=9,
                     bgcolor=ft.Colors.with_opacity(0.10, ft.Colors.PRIMARY),
-                    padding=ft.Padding.symmetric(vertical=3),
+                    padding=ft.Padding.symmetric(vertical=5),
                     alignment=ft.Alignment.CENTER,
-                    content=ft.Text(kind, size=10, weight=ft.FontWeight.BOLD,
+                    content=ft.Text(kind, size=13, weight=ft.FontWeight.BOLD,
                                     color=ft.Colors.PRIMARY),
                 ),
                 ft.Text(
                     path.name,
-                    size=13,
+                    size=16,
                     expand=True,
                     max_lines=1,
                     overflow=ft.TextOverflow.ELLIPSIS,
                     tooltip=str(path),
                 ),
-                ft.Text(path.suffix.lower().lstrip("."), size=10,
+                ft.Text(path.suffix.lower().lstrip("."), size=13,
                         color=ft.Colors.ON_SURFACE_VARIANT),
                 *trailing,
             ],
@@ -124,21 +124,24 @@ def FileList(
     on_remove: Callable[[Path], None] | None = None,
     dark: bool = False,
     doc_unsupported: bool = False,
+    fill: bool = False,
 ) -> ft.Control:
-    """Список файлов; пустой — с деликатной заглушкой."""
+    """Список файлов; ``fill`` — растянуть на всю свободную высоту панели."""
     if not files:
         return ft.Container(
-            padding=ft.Padding.symmetric(vertical=18),
+            expand=fill,
+            padding=ft.Padding.symmetric(vertical=theme.SPACE_LG),
             alignment=ft.Alignment.CENTER,
             content=ft.Text(
                 "Пока ничего не добавлено",
-                size=12,
+                size=15,
                 italic=True,
                 color=ft.Colors.ON_SURFACE_VARIANT,
             ),
         )
     return ft.ListView(
-        height=min(_ROW_HEIGHT * len(files) + 8, _MAX_LIST_HEIGHT),
+        expand=fill,
+        height=None if fill else min(_ROW_HEIGHT * len(files) + 8, _MAX_LIST_HEIGHT),
         item_extent=_ROW_HEIGHT,
         padding=ft.Padding.symmetric(vertical=4),
         controls=[

@@ -30,23 +30,24 @@ def Panel(
     if icon:
         heading.append(
             ft.Container(
-                width=34,
-                height=34,
-                border_radius=10,
+                width=50,
+                height=50,
+                border_radius=15,
                 bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.PRIMARY),
                 alignment=ft.Alignment.CENTER,
-                content=ft.Icon(icon, size=18, color=ft.Colors.PRIMARY),
+                animate=theme.theme_motion(),
+                content=ft.Icon(icon, size=26, color=ft.Colors.PRIMARY),
             )
         )
 
     titles: list[ft.Control] = [
-        ft.Text(title, size=15, weight=ft.FontWeight.W_600,
+        ft.Text(title, size=20, weight=ft.FontWeight.W_600,
                 color=ft.Colors.ON_SURFACE)
     ]
     if subtitle:
-        titles.append(ft.Text(subtitle, size=12, color=ft.Colors.ON_SURFACE_VARIANT))
+        titles.append(ft.Text(subtitle, size=15, color=ft.Colors.ON_SURFACE_VARIANT))
 
-    heading.append(ft.Column(titles, spacing=1, expand=True, tight=True))
+    heading.append(ft.Column(titles, spacing=2, expand=True, tight=True))
     if trailing is not None:
         heading.append(trailing)
 
@@ -56,13 +57,14 @@ def Panel(
         border=ft.Border.all(1, p.hairline),
         border_radius=theme.RADIUS_CARD,
         shadow=theme.soft_shadow(dark),
-        padding=ft.Padding.all(theme.SPACE_MD),
+        animate=theme.theme_motion(),
+        padding=ft.Padding.all(theme.SPACE_LG),
         content=ft.Column(
             spacing=theme.SPACE_MD,
             expand=expand,
             controls=[
                 ft.Row(
-                    spacing=theme.SPACE_SM,
+                    spacing=theme.SPACE_MD,
                     vertical_alignment=ft.CrossAxisAlignment.CENTER,
                     controls=heading,
                 ),

@@ -32,21 +32,85 @@ GUU_GRAY_DARK = "#55565B"  # Cool Gray 11
 # --------------------------------------------------------------------------- #
 #  Геометрия и типографика
 # --------------------------------------------------------------------------- #
-RADIUS_CARD = 18
-RADIUS_CONTROL = 12
+RADIUS_CARD = 22
+RADIUS_CONTROL = 16
 RADIUS_PILL = 999
 
-SPACE_XS = 6
-SPACE_SM = 10
-SPACE_MD = 16
-SPACE_LG = 22
+SPACE_XS = 8
+SPACE_SM = 12
+SPACE_MD = 18
+SPACE_LG = 28
+SPACE_XL = 40
 
-TOP_BAR_HEIGHT = 62
-ACTION_BAR_HEIGHT = 78
+TOP_BAR_HEIGHT = 80
 
-# Предел ширины рабочей области: на 4K-мониторе строки не должны
-# расползаться на весь экран.
-MAX_CONTENT_WIDTH = 1440
+# --------------------------------------------------------------------------- #
+#  Анимация смены темы
+# --------------------------------------------------------------------------- #
+#  Смена темы — не мгновенное переключение, а плавный переход: Material-цвета
+#  интерполируются самим Flutter (``page.theme_animation_style``), а «сырые»
+#  поверхности из :class:`Palette` — через ``animate`` на контейнерах. Обе
+#  анимации идут с одной длительностью и кривой, поэтому фон, карточки
+#  и текст перекрашиваются синхронно, без ступенек.
+THEME_MOTION_MS = 520
+THEME_MOTION_CURVE = ft.AnimationCurve.EASE_IN_OUT_CUBIC_EMPHASIZED
+
+
+def theme_motion() -> ft.Animation:
+    """Анимация перекраски контейнера при смене темы."""
+    return ft.Animation(THEME_MOTION_MS, THEME_MOTION_CURVE)
+
+
+def theme_animation_style() -> ft.AnimationStyle:
+    """Переход Material-палитры для ``page.theme_animation_style``."""
+    return ft.AnimationStyle(
+        duration=ft.Duration(milliseconds=THEME_MOTION_MS),
+        curve=THEME_MOTION_CURVE,
+    )
+
+
+# --------------------------------------------------------------------------- #
+#  Адаптивная раскладка
+# --------------------------------------------------------------------------- #
+COMPACT = "compact"  # узкое окно: одна колонка, минимум полей
+MEDIUM = "medium"  # средний экран: одна колонка, но с воздухом
+EXPANDED = "expanded"  # широкий экран: две колонки
+LARGE = "large"  # большой монитор: две колонки, шире и просторнее
+
+_BREAKPOINT_MEDIUM = 760
+_BREAKPOINT_EXPANDED = 1120
+_BREAKPOINT_LARGE = 1560
+
+
+@dataclass(frozen=True)
+class Layout:
+    """Метрики раскладки под текущую ширину окна."""
+
+    mode: str
+    two_columns: bool
+    side_width: int  # ширина колонки источников
+    gutter: int  # отступ рабочей области от краёв
+    gap: int  # расстояние между карточками
+    max_width: int  # предел ширины контента на широких мониторах
+    hero: bool  # крупная зона выбора файлов вместо компактной
+
+
+def layout_for(width: float | None) -> Layout:
+    """Подбирает раскладку по ширине окна.
+
+    Четыре ступени вместо «узко/широко»: на планшетной ширине хочется одну
+    колонку, но с полноценной зоной загрузки, а на большом мониторе —
+    более широкую колонку источников и увеличенные поля, иначе интерфейс
+    выглядит растянутым.
+    """
+    w = width or _BREAKPOINT_EXPANDED
+    if w < _BREAKPOINT_MEDIUM:
+        return Layout(COMPACT, False, 0, SPACE_MD, SPACE_MD, 720, False)
+    if w < _BREAKPOINT_EXPANDED:
+        return Layout(MEDIUM, False, 0, SPACE_LG, SPACE_LG, 1000, True)
+    if w < _BREAKPOINT_LARGE:
+        return Layout(EXPANDED, True, 400, SPACE_XL, SPACE_LG, 1680, True)
+    return Layout(LARGE, True, 470, SPACE_XL + SPACE_SM, SPACE_XL, 1920, True)
 
 
 @dataclass(frozen=True)
@@ -211,11 +275,11 @@ def _text_theme(on_surface: str) -> ft.TextTheme:
     берёт белый текст по умолчанию, и в светлой теме заголовки исчезают.
     """
     sizes = {
-        "display_large": 40, "display_medium": 34, "display_small": 28,
-        "headline_large": 26, "headline_medium": 24, "headline_small": 22,
-        "title_large": 18, "title_medium": 15, "title_small": 13,
-        "body_large": 14, "body_medium": 13, "body_small": 12,
-        "label_large": 13, "label_medium": 12, "label_small": 11,
+        "display_large": 44, "display_medium": 38, "display_small": 31,
+        "headline_large": 29, "headline_medium": 26, "headline_small": 24,
+        "title_large": 22, "title_medium": 19, "title_small": 16,
+        "body_large": 17, "body_medium": 16, "body_small": 14,
+        "label_large": 16, "label_medium": 14, "label_small": 13,
     }
     bold = {"display_large", "display_medium", "display_small",
             "headline_large", "headline_medium", "headline_small"}
@@ -259,11 +323,11 @@ def build_theme(dark: bool = False) -> ft.Theme:
         progress_indicator_theme=ft.ProgressIndicatorTheme(
             color=scheme.primary,
             linear_track_color=ft.Colors.with_opacity(0.18, scheme.primary),
-            linear_min_height=6,
+            linear_min_height=7,
             border_radius=RADIUS_PILL,
         ),
         tooltip_theme=ft.TooltipTheme(
-            text_style=ft.TextStyle(size=12, color=scheme.on_inverse_surface),
+            text_style=ft.TextStyle(size=13, color=scheme.on_inverse_surface),
             decoration=ft.BoxDecoration(
                 bgcolor=ft.Colors.with_opacity(0.95, scheme.inverse_surface),
                 border_radius=ft.BorderRadius.all(8),
@@ -274,7 +338,7 @@ def build_theme(dark: bool = False) -> ft.Theme:
         snackbar_theme=ft.SnackBarTheme(
             behavior=ft.SnackBarBehavior.FLOATING,
             bgcolor=scheme.inverse_surface,
-            content_text_style=ft.TextStyle(size=13, color=scheme.on_inverse_surface),
+            content_text_style=ft.TextStyle(size=14, color=scheme.on_inverse_surface),
             shape=ft.RoundedRectangleBorder(radius=RADIUS_CONTROL),
         ),
         text_theme=_text_theme(scheme.on_surface),
