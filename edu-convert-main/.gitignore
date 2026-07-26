@@ -1,0 +1,50 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# --- Виртуальное окружение ---
+.venv/
+venv/
+env/
+
+# --- Тесты / покрытие ---
+.pytest_cache/
+.tox/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+
+# --- Временные файлы и артефакты прогона ---
+*.zip
+result*.zip
+результат*.zip
+_test_out/
+*.tmp
+~$*.doc*
+
+# --- IDE / ОС ---
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# --- Реальные институциональные данные (НЕ публикуются) ---
+# Учебный план, исходные РПД/ФОС и одобренные эталоны содержат внутренние
+# сведения вуза. Синтетический пример в samples/ и размеченные templates/ —
+# публикуются.
+/files/
+/examples/
+/_audit_out/
+/база.xlsx
+/Б1_*.doc
+/Б1_*.docx
+/ФОС_Б1_*.doc
+/ФОС_Б1_*.docx
+/Шаблон РП (2026) ММЭУ.docx
+/ФОС_ШАБЛОН (2026) ММЭУ.docx
+/EduConvert.md
