@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import re
 from enum import Enum
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -243,10 +244,31 @@ class FileStatus(str, Enum):
     ERROR = "Ошибка"
 
 
+# Маркеры ФОС в имени файла. Сверяются с целыми токенами, а не подстрокой:
+# в «Химия фосфора.docx» подстрока «фос» есть, но это РПД.
+_FOS_MARKERS = frozenset({"ФОС", "FOS"})
+# Границы токенов — всё, кроме букв и цифр: пробел, «_», «.», «-»,
+# а также скобки в копиях вида «ФОС (1).docx».
+_NAME_TOKEN_RE = re.compile(r"[^0-9A-Za-zА-Яа-яЁё]+")
+
+
 class DocType(str, Enum):
     RPD = "РПД"
     FOS = "ФОС"
     UNKNOWN = "Неизвестно"
+
+    @classmethod
+    def from_filename(cls, filename: str) -> DocType:
+        """Тип документа по имени файла; всё, что не помечено как ФОС, — РПД.
+
+        Единственная точка правды для всего приложения. Список файлов в
+        интерфейсе и оркестратор обязаны решать одинаково: иначе пользователь
+        видит бейдж «ФОС», а документ молча собирается по шаблону РПД —
+        ошибки при этом нет, файл считается успешно сконвертированным.
+        """
+        stem = filename.rsplit(".", 1)[0] if "." in filename else filename
+        tokens = {t.upper() for t in _NAME_TOKEN_RE.split(stem) if t}
+        return cls.FOS if tokens & _FOS_MARKERS else cls.RPD
 
 
 class FileResult(BaseModel):

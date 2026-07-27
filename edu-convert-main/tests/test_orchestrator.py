@@ -14,9 +14,10 @@ from pathlib import Path
 
 import anyio
 import polars as pl
+import pytest
 from docx import Document
 
-from app.core.models import FileStatus
+from app.core.models import DocType, FileStatus
 from app.services.orchestrator import Orchestrator
 
 _REPORT_COLUMNS_EXPECTED = [
@@ -117,3 +118,41 @@ def test_orchestrator_failure_cleans_workdir(
         pass
     after = set(settings.temp_root.glob("run_*")) if settings.temp_root.exists() else set()
     assert after == before  # новых осиротевших папок не появилось
+
+
+# --------------------------------------------------------------------------- #
+#  Тип документа по имени файла
+# --------------------------------------------------------------------------- #
+# Правило одно на всё приложение: и бейдж в списке файлов, и выбор шаблона
+# опираются на DocType.from_filename. Раньше UI и оркестратор разбирали имя
+# по-разному, и «Б1.О.01 ФОС.docx» собирался по шаблону РПД без единой ошибки
+# в отчёте — файл считался успешно сконвертированным.
+@pytest.mark.parametrize(
+    "filename",
+    [
+        "ФОС по матанализу.docx",      # маркер в начале
+        "Матанализ ФОС.docx",          # маркер в конце
+        "Б1.О.01 ФОС.docx",            # после индекса — самый частый случай
+        "фос_матан.docx",              # нижний регистр
+        "FOS_math.docx",               # латиница
+        "ФОС (1).docx",                # копия, созданная файловым менеджером
+        "ФОС_Б1_В_ДВ_02_02_Модели.doc",
+    ],
+)
+def test_doc_type_fos(filename: str) -> None:
+    assert DocType.from_filename(filename) is DocType.FOS
+
+
+@pytest.mark.parametrize(
+    "filename",
+    [
+        "РПД Матанализ.docx",
+        "Б1_О_01_РПД_Методология.docx",
+        "Химия фосфора.docx",                  # подстрока «фос» внутри слова
+        "Фосфорорганические соединения.docx",
+        "безымянный.docx",                     # без маркеров — по умолчанию РПД
+        "",
+    ],
+)
+def test_doc_type_rpd(filename: str) -> None:
+    assert DocType.from_filename(filename) is DocType.RPD

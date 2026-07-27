@@ -200,7 +200,7 @@ class Orchestrator:
             return FileResult(
                 filename=path.name,
                 index=exc.index,
-                doc_type=_detect_doc_type(path),
+                doc_type=DocType.from_filename(path.name),
                 status=FileStatus.ERROR,
                 message=str(exc),
             )
@@ -208,7 +208,7 @@ class Orchestrator:
             logger.error("Файл %s: %s", path.name, exc)
             return FileResult(
                 filename=path.name,
-                doc_type=_detect_doc_type(path),
+                doc_type=DocType.from_filename(path.name),
                 status=FileStatus.ERROR,
                 message=str(exc),
             )
@@ -216,13 +216,13 @@ class Orchestrator:
             logger.exception("Непредвиденная ошибка при обработке %s", path.name)
             return FileResult(
                 filename=path.name,
-                doc_type=_detect_doc_type(path),
+                doc_type=DocType.from_filename(path.name),
                 status=FileStatus.ERROR,
                 message=f"Непредвиденная ошибка: {exc}",
             )
 
     def _process_file(self, path: Path, out_dir: Path) -> FileResult:
-        doc_type = _detect_doc_type(path)
+        doc_type = DocType.from_filename(path.name)
 
         # 1. Индекс — сначала из имени файла (не требует открытия документа).
         index = index_from_filename(path.name)
@@ -325,12 +325,3 @@ def _looks_like_official_form(path: Path, doc_type: DocType) -> bool:
         )
         return "цели освоения дисциплины" in text and "вид учебной работы" in tables
     return "примерный перечень задач" in text or "примерный состав тестовых вопросов" in text
-
-
-def _detect_doc_type(path: Path) -> DocType:
-    name = normalize_text(path.name)
-    if name.startswith("фос") or "фос_" in name or "_фос_" in name:
-        return DocType.FOS
-    if "рпд" in name or "рп_" in name:
-        return DocType.RPD
-    return DocType.RPD

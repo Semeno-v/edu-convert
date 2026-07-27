@@ -14,6 +14,7 @@ from pathlib import Path
 
 import flet as ft
 
+from app.core.models import DocType
 from app.ui import theme
 
 _ROW_HEIGHT = 60
@@ -52,8 +53,9 @@ def FileRow(
     """Строка одного файла: тип, имя, формат, состояние и удаление."""
     hovered, set_hovered = ft.use_state(False)
     p = theme.palette(dark)
-    lowered = path.name.lower()
-    kind = "ФОС" if ("фос" in lowered or "fos" in lowered) else "РПД"
+    # тот же разбор имени, что и в оркестраторе: бейдж обязан совпадать
+    # с шаблоном, по которому файл будет собран
+    kind = DocType.from_filename(path.name).value
 
     trailing: list[ft.Control] = []
     if unsupported:
