@@ -71,50 +71,58 @@ def TopBar(
             end=ft.Alignment.CENTER_RIGHT,
             colors=[p.accent_from, p.accent_to],
         ),
+        # ``animate`` оставлен ради градиента: его, в отличие от цветов
+        # ``ColorScheme``, Flutter сам не перетекает при смене темы. Зато
+        # отступ вынесен во вложенный контейнер: он зависит от ширины окна,
+        # и внутри анимируемого шапка ползла бы к новому отступу 680 мс,
+        # отставая от края окна при перетаскивании.
         animate=theme.theme_motion(),
-        padding=ft.Padding.symmetric(horizontal=gutter),
-        content=ft.Row(
-            spacing=16,
-            vertical_alignment=ft.CrossAxisAlignment.CENTER,
-            controls=[
-                ft.Container(
-                    width=46,
-                    height=46,
-                    border_radius=15,
-                    bgcolor=ft.Colors.with_opacity(0.18, ft.Colors.WHITE),
-                    alignment=ft.Alignment.CENTER,
-                    content=ft.Icon(ft.Icons.AUTO_AWESOME_MOTION_ROUNDED, size=26,
-                                    color=p.on_accent),
-                ),
-                ft.Column(
-                    spacing=1,
-                    tight=True,
-                    expand=True,
-                    controls=[
-                        ft.Text("EduConvert", size=21, weight=ft.FontWeight.BOLD,
-                                color=p.on_accent),
-                        ft.Text(
-                            "РПД и ФОС → форма 2026",
-                            size=14,
-                            color=ft.Colors.with_opacity(0.75, p.on_accent),
-                        ),
-                    ],
-                ),
-                ThemeToggle(dark, on_toggle_theme, p.on_accent),
-                ft.IconButton(
-                    icon=ft.Icons.HELP_OUTLINE_ROUNDED,
-                    icon_size=24,
-                    icon_color=ft.Colors.with_opacity(0.85, p.on_accent),
-                    tooltip="Как это работает (F1)",
-                    on_click=on_help,
-                ),
-                ft.Container(
-                    border_radius=theme.RADIUS_PILL,
-                    padding=ft.Padding.symmetric(horizontal=12, vertical=5),
-                    bgcolor=ft.Colors.with_opacity(0.16, ft.Colors.WHITE),
-                    content=ft.Text(f"v{version}", size=13,
-                                    color=ft.Colors.with_opacity(0.9, p.on_accent)),
-                ),
-            ],
+        content=ft.Container(
+            padding=ft.Padding.symmetric(horizontal=gutter),
+            content=ft.Row(
+                spacing=16,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                controls=[
+                    ft.Container(
+                        width=46,
+                        height=46,
+                        border_radius=15,
+                        bgcolor=ft.Colors.with_opacity(0.18, ft.Colors.WHITE),
+                        alignment=ft.Alignment.CENTER,
+                        content=ft.Icon(ft.Icons.AUTO_AWESOME_MOTION_ROUNDED,
+                                        size=26, color=p.on_accent),
+                    ),
+                    ft.Column(
+                        spacing=1,
+                        tight=True,
+                        expand=True,
+                        controls=[
+                            ft.Text("EduConvert", size=21,
+                                    weight=ft.FontWeight.BOLD, color=p.on_accent),
+                            ft.Text(
+                                "РПД и ФОС → форма 2026",
+                                size=14,
+                                color=ft.Colors.with_opacity(0.75, p.on_accent),
+                            ),
+                        ],
+                    ),
+                    ThemeToggle(dark, on_toggle_theme, p.on_accent),
+                    ft.IconButton(
+                        icon=ft.Icons.HELP_OUTLINE_ROUNDED,
+                        icon_size=24,
+                        icon_color=ft.Colors.with_opacity(0.85, p.on_accent),
+                        tooltip="Как это работает (F1)",
+                        on_click=on_help,
+                    ),
+                    ft.Container(
+                        border_radius=theme.RADIUS_PILL,
+                        padding=ft.Padding.symmetric(horizontal=12, vertical=5),
+                        bgcolor=ft.Colors.with_opacity(0.16, ft.Colors.WHITE),
+                        content=ft.Text(
+                            f"v{version}", size=13,
+                            color=ft.Colors.with_opacity(0.9, p.on_accent)),
+                    ),
+                ],
+            ),
         ),
     )

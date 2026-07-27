@@ -60,6 +60,18 @@ def _plural_files(n: int) -> str:
     return f"{n} файлов"
 
 
+def _skip_reason(paths: list[str]) -> str:
+    """Почему из выбранного ничего не добавилось.
+
+    Раньше на любой отказ показывалось «Эти файлы уже в списке». При вставке
+    из буфера чего-то постороннего — картинки, PDF — сообщение сбивало с толку:
+    пользователь искал файлы в списке, которых там никогда не было.
+    """
+    if any(Path(p).suffix.lower() in _INPUT_SUFFIXES for p in paths):
+        return "Эти файлы уже в списке"
+    return "Подходят только файлы .doc и .docx"
+
+
 def _snack(page: ft.Page, message: str, action: str | None = None,
            on_action=None) -> None:
     page.show_dialog(ft.SnackBar(
@@ -131,6 +143,11 @@ class AppState:
     dark: bool = False
     view: str = SETUP
     help_phase: str = help_sheet.CLOSED
+    # Ширина окна живёт в состоянии, а не читается из page.width во время
+    # сборки: ``page.update()`` перерисовывает уже готовое дерево, но не
+    # перезапускает компонент, поэтому раскладка застывала на старой ширине
+    # и «догоняла» окно только при следующей смене состояния — отсюда рывок.
+    width: float = 0.0
 
     _run_result: RunResult | None = None
 
@@ -167,25 +184,33 @@ class AppState:
         return None
 
     @property
-    def file_states(self) -> dict[str, str]:
-        """Состояние каждой строки списка файлов (очередь/работа/итог)."""
+    def file_states(self) -> dict[int, str]:
+        """Состояние каждой строки списка файлов (очередь/работа/итог).
+
+        Ключ — порядковый номер файла, а не имя: имена не уникальны. Два
+        «РПД.docx» из разных папок делили одну запись, и обе строки показывали
+        состояние того файла, который обработался последним — при ошибке
+        в одном из них галочка «готово» стояла у обоих. Оркестратор кладёт
+        ровно один результат на каждый вход и в том же порядке, поэтому
+        позиция совпадает с индексом результата.
+        """
         if self.results:
             by_status = {
                 FileStatus.SUCCESS: fl.DONE,
                 FileStatus.DISCREPANCY: fl.WARN,
                 FileStatus.ERROR: fl.FAILED,
             }
-            return {r.filename: by_status[r.status] for r in self.results}
+            return {i: by_status[r.status] for i, r in enumerate(self.results)}
         if not self.running:
             return {}
-        states: dict[str, str] = {}
-        for i, path in enumerate(self.input_files):
+        states: dict[int, str] = {}
+        for i in range(len(self.input_files)):
             if i < self.processed:
-                states[path.name] = fl.DONE
+                states[i] = fl.DONE
             elif i == self.processed:
-                states[path.name] = fl.RUNNING
+                states[i] = fl.RUNNING
             else:
-                states[path.name] = fl.QUEUED
+                states[i] = fl.QUEUED
         return states
 
     # --- мутации --- #
@@ -215,8 +240,16 @@ class AppState:
     def add_dir(self, directory: str | None) -> int:
         if not directory:
             return 0
+        try:
+            entries = sorted(Path(directory).iterdir())
+        except OSError as exc:
+            # Папка может быть недоступна на чтение или уже удалена. Без этой
+            # ветки исключение уходило в обработчик события: список не менялся,
+            # сообщения не было — папка просто «не добавлялась» без объяснений.
+            self.error = f"Не удалось прочитать папку: {exc}"
+            return 0
         found = [
-            p for p in sorted(Path(directory).iterdir())
+            p for p in entries
             if p.suffix.lower() in _INPUT_SUFFIXES and not p.name.startswith("~$")
         ]
         return self.add_files([str(p) for p in found])
@@ -273,9 +306,16 @@ class AppState:
         finally:
             self.running = False
 
-    def save_zip_to(self, dest: str | None) -> Path | None:
+    async def save_zip_to(self, dest: str | None) -> Path | None:
+        """Копирует архив результатов по выбранному пути.
+
+        Копирование уходит в поток: архив с сотней документов весит десятки
+        мегабайт, и синхронный ``shutil.copy`` прямо в обработчике замораживал
+        весь интерфейс на время записи — окно переставало перерисовываться,
+        и выглядело это как зависшее приложение.
+        """
         if dest and self._run_result is not None:
-            shutil.copy(self._run_result.zip_path, dest)
+            await asyncio.to_thread(shutil.copy, self._run_result.zip_path, dest)
             return Path(dest)
         return None
 
@@ -322,9 +362,13 @@ def App() -> ft.Control:
 
     ft.use_effect(_update_recent_db, dependencies=[state.db_path])
 
+    # История баз читает файл настроек и проверяет каждый путь на диске.
+    # Без memo это происходило на каждой перерисовке — в том числе на каждом
+    # кадре перетаскивания окна и на каждом наведении мыши.
+    recent_dbs = ft.use_memo(persistence.get_recent_dbs, dependencies=[state.db_path])
     recent_db_items = [
         (Path(p).name, lambda e, p=p: state.set_db(p))
-        for p in persistence.get_recent_dbs()
+        for p in recent_dbs
         if Path(p) != state.db_path
     ]
 
@@ -375,9 +419,10 @@ def App() -> ft.Control:
             allow_multiple=True,
         )
         if files:
-            added = state.add_files([f.path for f in files])
+            paths = [f.path for f in files]
+            added = state.add_files(paths)
             _snack(page, f"Добавлено {_plural_files(added)}" if added
-                   else "Эти файлы уже в списке")
+                   else _skip_reason(paths))
 
     async def pick_dir(e: ft.Event[ft.Control] | None = None) -> None:
         directory = await dir_picker.current.get_directory_path(
@@ -395,7 +440,7 @@ def App() -> ft.Control:
         if added:
             _snack(page, f"Добавлено {_plural_files(added)} из буфера обмена")
         elif paths:
-            _snack(page, "Эти файлы уже в списке")
+            _snack(page, _skip_reason(paths))
         else:
             _snack(page, paste_note or "В буфере обмена нет файлов .doc или .docx")
 
@@ -405,7 +450,7 @@ def App() -> ft.Control:
             file_name="EduConvert_результат.zip",
             allowed_extensions=["zip"],
         )
-        if saved := state.save_zip_to(dest):
+        if saved := await state.save_zip_to(dest):
             _snack(page, f"Архив сохранён: {saved.name}", action="Показать",
                    on_action=lambda e, p=saved: _reveal(p))
 
@@ -454,7 +499,8 @@ def App() -> ft.Control:
     }
 
     p = theme.palette(state.dark)
-    lay = theme.layout_for(page.width)
+    width = state.width or page.width
+    lay = theme.layout_for(width)
 
     # --- левая колонка: источники данных --- #
     sources = Panel(
@@ -504,11 +550,10 @@ def App() -> ft.Control:
     if state.view == RESULTS and state.results:
         right_content: ft.Control = ft.Container(
             key="results",
-            bgcolor=p.card,
-            border=ft.Border.all(1, p.hairline),
+            bgcolor=ft.Colors.SURFACE,
+            border=ft.Border.all(1, ft.Colors.OUTLINE_VARIANT),
             border_radius=theme.RADIUS_CARD,
             shadow=theme.soft_shadow(state.dark),
-            animate=theme.theme_motion(),
             padding=ft.Padding.all(theme.SPACE_LG),
             content=ResultsView(
                 state.results,
@@ -533,8 +578,12 @@ def App() -> ft.Control:
                               tooltip="Очистить список (Ctrl+L)", on_click=clear_inputs)
             )
 
+        # Ключ постоянен: AnimatedSwitcher обязан отличать «настройку» от
+        # «результатов», но не отдельные состояния списка. С ключом, зависящим
+        # от числа файлов, каждое добавление подменяло контрол целиком —
+        # панель гасла и проявлялась заново вместо того, чтобы дорисовать строку.
         right_content = ft.Container(
-            key=f"setup-{len(state.input_files)}",
+            key="setup",
             expand=fill,
             content=Panel(
                 title="Документы к конвертации",
@@ -553,7 +602,6 @@ def App() -> ft.Control:
                             on_pick_dir=pick_dir,
                             on_paste=paste,
                             paste_hint=paste_hint,
-                            dark=state.dark,
                             compact=bool(state.input_files) or not lay.hero,
                             # пустая панель: зона выбора занимает её целиком
                             expand=fill and not state.input_files,
@@ -613,10 +661,12 @@ def App() -> ft.Control:
                    on_toggle_theme=lambda e: state.toggle_theme(),
                    on_help=show_help,
                    gutter=lay.gutter),
+            # Отступы рабочей области зависят от ширины окна. С общим
+            # ``animate`` контейнер догонял новую раскладку 680 мс, и при
+            # перетаскивании края окна содержимое заметно отставало от рамки.
             ft.Container(
                 expand=True,
-                bgcolor=p.canvas,
-                animate=theme.theme_motion(),
+                bgcolor=ft.Colors.SURFACE_CONTAINER,
                 padding=ft.Padding.symmetric(
                     horizontal=lay.gutter, vertical=lay.gap
                 ),
@@ -625,7 +675,7 @@ def App() -> ft.Control:
                 alignment=ft.Alignment.TOP_CENTER,
                 content=ft.Container(
                     expand=True,
-                    width=min(page.width or lay.max_width, lay.max_width),
+                    width=min(width or lay.max_width, lay.max_width),
                     content=workspace,
                 ),
             ),
@@ -659,10 +709,12 @@ def App() -> ft.Control:
 
 def _notice(text: str, icon: str, fg: str, bg: str) -> ft.Control:
     """Цветная плашка-предупреждение под панелью источников."""
+    # Высота плашки зависит от того, во сколько строк ляжет текст, а это
+    # меняется при каждом изменении ширины окна. Общий ``animate`` заставлял
+    # её переползать к новой высоте, толкая всё под собой.
     return ft.Container(
         bgcolor=bg,
         border_radius=theme.RADIUS_CONTROL,
-        animate=theme.theme_motion(),
         padding=ft.Padding.all(theme.SPACE_MD),
         content=ft.Row(
             spacing=theme.SPACE_SM,
@@ -717,8 +769,19 @@ def main(page: ft.Page) -> None:
                 await result
 
     page.on_keyboard_event = on_keyboard
-    # раскладка зависит от ширины окна: перерисовываем при изменении размера
-    page.on_resize = lambda e: page.update()
+
+    def on_resize(e: ft.Event[ft.Control]) -> None:
+        """Прокидывает ширину окна в состояние, чтобы раскладка шла за окном.
+
+        ``page.update()`` пересылает клиенту уже собранное дерево и компонент
+        заново не выполняет — при перетаскивании края окна раскладка оставалась
+        прежней и перескакивала позже, вместе с посторонним обновлением.
+        Присваивание поля observable-состояния запускает честную пересборку.
+        """
+        if (state := page.data.get("state")) is not None:
+            state.width = page.width or 0.0
+
+    page.on_resize = on_resize
     page.render(App)
 
 

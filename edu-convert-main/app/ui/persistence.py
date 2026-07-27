@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 _SETTINGS_PATH = Path.home() / ".educonvert" / "settings.json"
@@ -16,18 +17,30 @@ _MAX_RECENT = 3
 
 def _read() -> dict:
     try:
-        return json.loads(_SETTINGS_PATH.read_text(encoding="utf-8"))
+        data = json.loads(_SETTINGS_PATH.read_text(encoding="utf-8"))
     except Exception:
         return {}
+    # Файл правят руками: если внутри оказался список или строка, вызывающий
+    # код упал бы на data["ключ"] уже за пределами этого try.
+    return data if isinstance(data, dict) else {}
 
 
 def _write(data: dict) -> None:
+    """Атомарно перезаписывает файл настроек.
+
+    Запись идёт во временный файл рядом, затем ``os.replace`` подменяет
+    настоящий одним неделимым шагом. Прямая запись сначала обрезала файл:
+    сбой посреди неё оставлял битый JSON, а он молча читается как пустой —
+    пользователь терял все пути, историю баз и выбранную тему разом.
+    """
     try:
         _SETTINGS_PATH.parent.mkdir(parents=True, exist_ok=True)
-        _SETTINGS_PATH.write_text(
+        tmp = _SETTINGS_PATH.with_name(f"{_SETTINGS_PATH.name}.{os.getpid()}.tmp")
+        tmp.write_text(
             json.dumps(data, ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
+        os.replace(tmp, _SETTINGS_PATH)
     except Exception:
         pass
 

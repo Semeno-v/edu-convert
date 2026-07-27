@@ -24,8 +24,6 @@ def Panel(
     expand: bool | int = False,
 ) -> ft.Control:
     """Карточка с заголовком и произвольным содержимым."""
-    p = theme.palette(dark)
-
     heading: list[ft.Control] = []
     if icon:
         heading.append(
@@ -35,7 +33,6 @@ def Panel(
                 border_radius=15,
                 bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.PRIMARY),
                 alignment=ft.Alignment.CENTER,
-                animate=theme.theme_motion(),
                 content=ft.Icon(icon, size=26, color=ft.Colors.PRIMARY),
             )
         )
@@ -51,13 +48,18 @@ def Panel(
     if trailing is not None:
         heading.append(trailing)
 
+    # Цвета взяты токенами ``ColorScheme``, а не из ``Palette``: их
+    # перекрашивание при смене темы Flutter анимирует сам через
+    # ``page.theme_animation_style``. Прежний ``animate`` на контейнере делал
+    # то же самое, но заодно интерполировал размер и отступы — панель, растущая
+    # от новой строки в списке или от изменения ширины окна, ползла к своему
+    # размеру 680 мс, и это читалось как подтормаживание интерфейса.
     return ft.Container(
         expand=expand,
-        bgcolor=p.card,
-        border=ft.Border.all(1, p.hairline),
+        bgcolor=ft.Colors.SURFACE,
+        border=ft.Border.all(1, ft.Colors.OUTLINE_VARIANT),
         border_radius=theme.RADIUS_CARD,
         shadow=theme.soft_shadow(dark),
-        animate=theme.theme_motion(),
         padding=ft.Padding.all(theme.SPACE_LG),
         content=ft.Column(
             spacing=theme.SPACE_MD,

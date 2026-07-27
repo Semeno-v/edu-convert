@@ -129,7 +129,6 @@ def HelpSheet(
     gutter: int = theme.SPACE_LG,
 ) -> ft.Control:
     """Слой справки поверх приложения; ``phase`` управляет анимацией."""
-    p = theme.palette(dark)
     shown = phase == OPEN
     entering = phase in (ENTER, OPEN)
 
@@ -148,10 +147,11 @@ def HelpSheet(
 
     scrim = ft.Container(
         expand=True,
-        # затемнение намеренно лёгкое: кнопка «?» должна остаться различимой,
-        # иначе теряется точка, из которой карточка выросла
-        bgcolor=ft.Colors.with_opacity(0.40, "#070B12"),
-        blur=ft.Blur(5, 5),
+        # Затемнение намеренно лёгкое: кнопка «?» должна остаться различимой,
+        # иначе теряется точка, из которой карточка выросла. Размытия здесь
+        # нет специально: ``blur`` — это BackdropFilter, он пересчитывает весь
+        # кадр под собой на каждом шаге анимации, и рост карточки шёл рывками.
+        bgcolor=ft.Colors.with_opacity(0.46, "#070B12"),
         opacity=1.0 if shown else 0.0,
         animate_opacity=scrim_motion,
         on_click=on_close,
@@ -162,8 +162,8 @@ def HelpSheet(
         right=gutter + _ANCHOR_OFFSET,
         top=theme.TOP_BAR_HEIGHT - 6,
         width=SHEET_WIDTH,
-        bgcolor=p.card,
-        border=ft.Border.all(1, p.hairline),
+        bgcolor=ft.Colors.SURFACE,
+        border=ft.Border.all(1, ft.Colors.OUTLINE_VARIANT),
         border_radius=theme.RADIUS_CARD,
         shadow=theme.soft_shadow(dark, strong=True),
         padding=ft.Padding.all(theme.SPACE_LG),

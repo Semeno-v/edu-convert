@@ -20,13 +20,10 @@ def PickZone(
     on_pick_dir: Callable[[ft.Event[ft.Control]], None],
     on_paste: Callable[[ft.Event[ft.Control]], None],
     paste_hint: str,
-    dark: bool = False,
     compact: bool = False,
     expand: bool = False,
 ) -> ft.Control:
     """Область выбора файлов; ``compact`` — когда файлы уже добавлены."""
-    p = theme.palette(dark)
-
     buttons = ft.Row(
         alignment=ft.MainAxisAlignment.CENTER,
         spacing=12,
@@ -71,7 +68,7 @@ def PickZone(
 
     if compact:
         return ft.Container(
-            border=ft.Border.all(1, p.hairline),
+            border=ft.Border.all(1, ft.Colors.OUTLINE_VARIANT),
             border_radius=theme.RADIUS_CONTROL,
             padding=ft.Padding.all(theme.SPACE_SM),
             content=buttons,
@@ -82,7 +79,6 @@ def PickZone(
         border=ft.Border.all(1.5, ft.Colors.with_opacity(0.35, ft.Colors.PRIMARY)),
         border_radius=theme.RADIUS_CARD,
         bgcolor=ft.Colors.with_opacity(0.04, ft.Colors.PRIMARY),
-        animate=theme.theme_motion(),
         padding=ft.Padding.symmetric(horizontal=theme.SPACE_LG, vertical=theme.SPACE_XL),
         alignment=ft.Alignment.CENTER,
         content=ft.Column(

@@ -123,11 +123,14 @@ class Orchestrator:
             total = len(input_files)
             for i, path in enumerate(input_files):
                 notify(i, total, f"Обработка файла: {path.name}")
-                result = await anyio.to_thread.run_sync(self._process_file_safe, path, out_dir)
+                result = await anyio.to_thread.run_sync(
+                    self._process_file_safe, path, out_dir, i
+                )
                 report.results.append(result)
 
             notify(total, total, "Формирование отчёта и архива…")
-            report_path = await anyio.to_thread.run_sync(self._write_report, report, out_dir)
+            # отчёт пишется в out_dir и попадает в архив вместе с документами
+            await anyio.to_thread.run_sync(self._write_report, report, out_dir)
             zip_path = await anyio.to_thread.run_sync(self._make_zip, out_dir, workdir)
         except BaseException:
             # Сбой до выдачи RunResult — вызвать cleanup() будет некому,
@@ -140,7 +143,6 @@ class Orchestrator:
             report.with_discrepancies,
             report.failed,
         )
-        _ = report_path
         return RunResult(report=report, zip_path=zip_path, workdir=workdir)
 
     # ------------------------------------------------------------------ #
@@ -192,9 +194,9 @@ class Orchestrator:
     # ------------------------------------------------------------------ #
     #  Обработка одного файла (изоляция сбоев)
     # ------------------------------------------------------------------ #
-    def _process_file_safe(self, path: Path, out_dir: Path) -> FileResult:
+    def _process_file_safe(self, path: Path, out_dir: Path, slot: int = 0) -> FileResult:
         try:
-            return self._process_file(path, out_dir)
+            return self._process_file(path, out_dir, slot)
         except SubjectNotFoundError as exc:
             logger.warning("Файл %s: %s", path.name, exc)
             return FileResult(
@@ -221,16 +223,22 @@ class Orchestrator:
                 message=f"Непредвиденная ошибка: {exc}",
             )
 
-    def _process_file(self, path: Path, out_dir: Path) -> FileResult:
+    def _process_file(self, path: Path, out_dir: Path, slot: int = 0) -> FileResult:
         doc_type = DocType.from_filename(path.name)
 
         # 1. Индекс — сначала из имени файла (не требует открытия документа).
         index = index_from_filename(path.name)
 
-        # 2. Конвертация устаревшего .doc.
-        docx_path = self.converter.convert(path, out_dir / "_converted") if self.converter.supports(
-            path
-        ) else path
+        # 2. Конвертация устаревшего .doc. Каждый файл конвертируется в свою
+        # подпапку: имя результата берётся из stem, а два входа с одинаковым
+        # именем из разных папок («каф_А/РПД.doc» и «каф_Б/РПД.doc») дали бы
+        # один путь. Тогда проверка «файл создан» в конвертере видела бы
+        # результат предыдущего файла и молча считала сбой успехом.
+        docx_path = (
+            self.converter.convert(path, out_dir / "_converted" / f"{slot:04d}")
+            if self.converter.supports(path)
+            else path
+        )
 
         if index is None:
             index = self.extractor.extract_index(docx_path)
@@ -256,9 +264,7 @@ class Orchestrator:
         # 6. Генерация (числа из Excel, текст из Word). Выходной файл сохраняет
         # исходное имя (для .doc — с расширением .docx).
         template = self.rpd_template if doc_type == DocType.RPD else self.fos_template
-        out_name = path.with_suffix(".docx").name
-        if (out_dir / out_name).exists():  # защита от совпадающих имён входов
-            out_name = f"{subject.index}_{out_name}"
+        out_name = _unique_name(out_dir, path.with_suffix(".docx").name, subject.index)
         self.generator.generate(template, out_dir / out_name, subject, content, doc_type)
 
         status = FileStatus.DISCREPANCY if diffs else FileStatus.SUCCESS
@@ -308,6 +314,25 @@ class Orchestrator:
                 if file.is_file() and "_converted" not in file.parts:
                     zf.write(file, file.relative_to(out_dir))
         return zip_path
+
+
+def _unique_name(out_dir: Path, name: str, index: str) -> str:
+    """Свободное имя выходного файла в ``out_dir``.
+
+    Сначала пробуется исходное имя, затем — с префиксом индекса дисциплины,
+    затем добавляется счётчик. Прежняя однократная проверка спасала только
+    от второго совпадения: третий файл с тем же именем и тем же индексом
+    перезаписывал результат второго, и в отчёте это никак не отражалось.
+    """
+    if not (out_dir / name).exists():
+        return name
+    candidate = f"{index}_{name}"
+    counter = 2
+    while (out_dir / candidate).exists():
+        stem, _, suffix = name.rpartition(".")
+        candidate = f"{index}_{stem}_{counter}.{suffix}"
+        counter += 1
+    return candidate
 
 
 def _looks_like_official_form(path: Path, doc_type: DocType) -> bool:

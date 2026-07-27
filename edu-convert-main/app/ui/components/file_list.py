@@ -122,7 +122,7 @@ def FileRow(
 @ft.component
 def FileList(
     files: list[Path],
-    states: dict[str, str],
+    states: dict[int, str],
     on_remove: Callable[[Path], None] | None = None,
     dark: bool = False,
     doc_unsupported: bool = False,
@@ -149,11 +149,13 @@ def FileList(
         controls=[
             FileRow(
                 file,
-                states.get(file.name, QUEUED),
+                # по позиции, а не по имени: одноимённые файлы из разных
+                # папок иначе делят одно состояние на двоих
+                states.get(i, QUEUED),
                 on_remove,
                 dark,
                 doc_unsupported and file.suffix.lower() == ".doc",
             )
-            for file in files
+            for i, file in enumerate(files)
         ],
     )

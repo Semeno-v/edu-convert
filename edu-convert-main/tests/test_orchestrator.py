@@ -18,7 +18,7 @@ import pytest
 from docx import Document
 
 from app.core.models import DocType, FileStatus
-from app.services.orchestrator import Orchestrator
+from app.services.orchestrator import Orchestrator, _unique_name
 
 _REPORT_COLUMNS_EXPECTED = [
     "Имя исходного файла", "Индекс дисциплины", "Статус",
@@ -156,3 +156,26 @@ def test_doc_type_fos(filename: str) -> None:
 )
 def test_doc_type_rpd(filename: str) -> None:
     assert DocType.from_filename(filename) is DocType.RPD
+
+
+# --------------------------------------------------------------------------- #
+#  Имена выходных файлов
+# --------------------------------------------------------------------------- #
+def test_unique_name_survives_repeated_collisions(tmp_path: Path) -> None:
+    """Каждый вход получает своё имя, сколько бы совпадений ни было.
+
+    Раньше проверка была однократной: третий файл с тем же именем и тем же
+    индексом молча перезаписывал результат второго.
+    """
+    names = []
+    for _ in range(5):
+        name = _unique_name(tmp_path, "РПД.docx", "Б1.О.01")
+        (tmp_path / name).touch()
+        names.append(name)
+
+    assert len(set(names)) == 5
+    assert len(list(tmp_path.iterdir())) == 5
+
+
+def test_unique_name_keeps_original_when_free(tmp_path: Path) -> None:
+    assert _unique_name(tmp_path, "РПД.docx", "Б1.О.01") == "РПД.docx"

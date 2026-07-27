@@ -110,10 +110,13 @@ def ActionBar(
         )
     )
 
+    # Без ``animate``: горизонтальный отступ здесь зависит от ширины окна,
+    # и общая анимация контейнера растягивала его перестройку на 680 мс —
+    # панель отставала от края окна при перетаскивании. Перекраску при смене
+    # темы берут на себя токены ``ColorScheme``.
     return ft.Container(
-        bgcolor=p.card,
-        border=ft.Border.only(top=ft.BorderSide(1, p.hairline)),
-        animate=theme.theme_motion(),
+        bgcolor=ft.Colors.SURFACE,
+        border=ft.Border.only(top=ft.BorderSide(1, ft.Colors.OUTLINE_VARIANT)),
         padding=ft.Padding.symmetric(horizontal=gutter, vertical=theme.SPACE_MD),
         content=ft.Row(
             spacing=theme.SPACE_MD,
