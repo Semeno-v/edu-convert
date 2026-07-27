@@ -52,8 +52,13 @@ TOP_BAR_HEIGHT = 80
 #  поверхности из :class:`Palette` — через ``animate`` на контейнерах. Обе
 #  анимации идут с одной длительностью и кривой, поэтому фон, карточки
 #  и текст перекрашиваются синхронно, без ступенек.
-THEME_MOTION_MS = 520
-THEME_MOTION_CURVE = ft.AnimationCurve.EASE_IN_OUT_CUBIC_EMPHASIZED
+#
+#  Кривая — кубическая без отскока: мягкий разгон, спокойная остановка.
+#  «Эмфатическая» давала рывок в середине, чистая синусоида на всю длину
+#  ощущалась вялой; кубика на ~2/3 секунды успевает показать переход
+#  и не заставляет ждать.
+THEME_MOTION_MS = 680
+THEME_MOTION_CURVE = ft.AnimationCurve.EASE_IN_OUT_CUBIC
 
 
 def theme_motion() -> ft.Animation:
@@ -140,18 +145,22 @@ class Palette:
     on_accent: str
 
 
+# Светлая тема намеренно не белая: чистый #FFFFFF на большой площади бьёт по
+# глазам при долгой работе с документами. Карточки — тёплый оттенок бумаги,
+# фон под ними на пару тонов темнее, поэтому иерархия читается без контраста
+# «белое на белом», а статусные подложки приглушены до пастельных.
 _LIGHT = Palette(
     dark=False,
-    ok="#0F7B4F",
-    ok_bg="#E4F4EC",
-    warn="#9A5B00",
-    warn_bg="#FCF0DC",
-    danger=GUU_RED,
-    danger_bg="#FCE5EA",
-    canvas="#F5F7FB",
-    card="#FFFFFF",
-    card_hover="#F8FAFD",
-    hairline="#E4E8F0",
+    ok="#1A6647",
+    ok_bg="#D6E5DC",
+    warn="#7D4B0A",
+    warn_bg="#EDE2CE",
+    danger="#B32338",
+    danger_bg="#EED9DD",
+    canvas="#DFE3EB",
+    card="#EFF1F6",
+    card_hover="#E8EBF2",
+    hairline="#CFD5E0",
     shadow="#0F1D33",
     accent_from=GUU_BLUE,
     accent_to=GUU_BLUE_BRIGHT,
@@ -204,32 +213,32 @@ def _light_scheme() -> ft.ColorScheme:
     p = _LIGHT
     return ft.ColorScheme(
         primary=GUU_BLUE,
-        on_primary="#FFFFFF",
-        primary_container="#DCE7F7",
-        on_primary_container="#12294A",
+        on_primary="#F1F4F9",
+        primary_container="#CDDAEE",
+        on_primary_container="#132844",
         secondary=GUU_BLUE_BRIGHT,
-        on_secondary="#FFFFFF",
-        secondary_container="#E7EEFA",
-        on_secondary_container="#16294A",
+        on_secondary="#F1F4F9",
+        secondary_container="#D7E0F0",
+        on_secondary_container="#17283F",
         tertiary=GUU_BLUE_SKY,
-        error=GUU_RED,
-        on_error="#FFFFFF",
+        error="#B32338",
+        on_error="#F1F4F9",
         error_container=p.danger_bg,
-        on_error_container="#7A1024",
+        on_error_container="#68141F",
         surface=p.card,
-        on_surface="#101828",
-        on_surface_variant="#5B6579",
-        surface_container_lowest="#FFFFFF",
-        surface_container_low="#FAFBFE",
+        on_surface="#202939",
+        on_surface_variant="#616A7B",
+        surface_container_lowest="#F5F6FA",
+        surface_container_low="#EAEDF3",
         surface_container=p.canvas,
-        surface_container_high="#EDF1F8",
-        surface_container_highest="#E6ECF6",
+        surface_container_high="#D8DDE7",
+        surface_container_highest="#D0D6E2",
         surface_tint=GUU_BLUE,
-        outline=GUU_GRAY,
+        outline="#878D9A",
         outline_variant=p.hairline,
         shadow=p.shadow,
-        inverse_surface="#1B2434",
-        on_inverse_surface="#F1F4FA",
+        inverse_surface="#232C3B",
+        on_inverse_surface="#EDF0F6",
         inverse_primary=GUU_BLUE_SKY,
     )
 

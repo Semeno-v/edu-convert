@@ -25,6 +25,8 @@ def ThemeToggle(
     Иконка не подменяется рывком: кнопка доворачивается на 180°, а старый
     символ уезжает вглубь, пока новый выплывает — тот же жест, что и у
     перекраски интерфейса, поэтому смена темы читается как одно движение.
+    Кривые здесь без отскока: пружинящая доводка спорила бы с ровным
+    перетеканием цвета на остальном экране.
     """
     return ft.Container(
         width=46,
@@ -39,8 +41,8 @@ def ThemeToggle(
         animate_rotation=theme.theme_motion(),
         content=ft.AnimatedSwitcher(
             duration=ft.Duration(milliseconds=theme.THEME_MOTION_MS),
-            switch_in_curve=ft.AnimationCurve.EASE_OUT_BACK,
-            switch_out_curve=ft.AnimationCurve.EASE_IN,
+            switch_in_curve=theme.THEME_MOTION_CURVE,
+            switch_out_curve=theme.THEME_MOTION_CURVE,
             transition=ft.AnimatedSwitcherTransition.SCALE,
             content=ft.Icon(
                 ft.Icons.LIGHT_MODE_ROUNDED if dark else ft.Icons.DARK_MODE_ROUNDED,

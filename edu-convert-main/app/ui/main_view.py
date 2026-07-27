@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import atexit
 import shutil
 import subprocess
@@ -30,8 +31,10 @@ from app.core.models import FileResult, FileStatus
 from app.services.orchestrator import Orchestrator, RunResult
 from app.ui import clipboard_files, persistence, theme
 from app.ui.components import file_list as fl
+from app.ui.components import help_sheet
 from app.ui.components.action_bar import ActionBar
 from app.ui.components.file_list import FileList
+from app.ui.components.help_sheet import HelpSheet
 from app.ui.components.panel import Panel
 from app.ui.components.pick_zone import PickZone
 from app.ui.components.results_view import ResultsView
@@ -127,6 +130,7 @@ class AppState:
 
     dark: bool = False
     view: str = SETUP
+    help_phase: str = help_sheet.CLOSED
 
     _run_result: RunResult | None = None
 
@@ -287,68 +291,6 @@ def _name(path: Path | None) -> str | None:
     return path.name if path else None
 
 
-def _help_dialog(dark: bool) -> ft.AlertDialog:
-    """Короткая справка: порядок работы и горячие клавиши."""
-    def line(icon: str, text: str) -> ft.Control:
-        return ft.Row(
-            spacing=10,
-            vertical_alignment=ft.CrossAxisAlignment.START,
-            controls=[
-                ft.Icon(icon, size=21, color=ft.Colors.PRIMARY),
-                ft.Text(text, size=15, expand=True),
-            ],
-        )
-
-    def key(combo: str, text: str) -> ft.Control:
-        return ft.Row(
-            spacing=12,
-            vertical_alignment=ft.CrossAxisAlignment.CENTER,
-            controls=[
-                ft.Container(
-                    width=120,
-                    bgcolor=ft.Colors.SURFACE_CONTAINER_HIGH,
-                    border_radius=8,
-                    padding=ft.Padding.symmetric(horizontal=10, vertical=6),
-                    content=ft.Text(combo, size=14, weight=ft.FontWeight.W_600),
-                ),
-                ft.Text(text, size=15, expand=True),
-            ],
-        )
-
-    return ft.AlertDialog(
-        title=ft.Text("Как это работает", size=23, weight=ft.FontWeight.BOLD),
-        shape=ft.RoundedRectangleBorder(radius=theme.RADIUS_CARD),
-        scrollable=True,
-        content=ft.Container(
-            width=580,
-            content=ft.Column(
-                tight=True,
-                spacing=12,
-                controls=[
-                    line(ft.Icons.TABLE_VIEW_ROUNDED,
-                         "Числа (зачётные единицы, часы, семестры) берутся из учебного "
-                         "плана — он единственный источник истины."),
-                    line(ft.Icons.DESCRIPTION_OUTLINED,
-                         "Текстовые блоки (литература, темы, оценочные средства) "
-                         "переносятся из старых РПД и ФОС."),
-                    line(ft.Icons.FORMAT_PAINT_OUTLINED,
-                         "Всё подставленное конвертацией выделяется жёлтым, "
-                         "старые числа попадают только в отчёт о расхождениях."),
-                    ft.Divider(),
-                    key("Ctrl + O", "выбрать файлы"),
-                    key("Ctrl + D", "добавить папку"),
-                    key("Ctrl + V", "вставить файлы из буфера"),
-                    key("Ctrl + Enter", "запустить конвертацию"),
-                    key("Ctrl + L", "очистить список"),
-                ],
-            ),
-        ),
-        actions=[
-            ft.TextButton("Понятно", on_click=lambda e: ft.context.page.pop_dialog()),
-        ],
-    )
-
-
 @ft.component
 def App() -> ft.Control:
     state, _ = ft.use_state(_make_initial_state())
@@ -475,8 +417,30 @@ def App() -> ft.Control:
     def clear_inputs(e: ft.Event[ft.Control] | None = None) -> None:
         state.clear_inputs()
 
+    async def _open_help() -> None:
+        # карточку монтируют сжатой и разворачивают следующим кадром:
+        # Flutter анимирует изменение свойства, а не стартовое значение
+        await asyncio.sleep(0.03)
+        if state.help_phase == help_sheet.ENTER:
+            state.help_phase = help_sheet.OPEN
+
+    async def _finish_close_help() -> None:
+        # держим карточку в дереве, пока она втягивается обратно в «?»
+        await asyncio.sleep(help_sheet.EXIT_HOLD_S)
+        if state.help_phase == help_sheet.EXIT:
+            state.help_phase = help_sheet.CLOSED
+
     def show_help(e: ft.Event[ft.Control] | None = None) -> None:
-        page.show_dialog(_help_dialog(state.dark))
+        if state.help_phase in (help_sheet.ENTER, help_sheet.OPEN):
+            return
+        state.help_phase = help_sheet.ENTER
+        page.run_task(_open_help)
+
+    def close_help(e: ft.Event[ft.Control] | None = None) -> None:
+        if state.help_phase not in (help_sheet.ENTER, help_sheet.OPEN):
+            return
+        state.help_phase = help_sheet.EXIT
+        page.run_task(_finish_close_help)
 
     # хендлеры для горячих клавиш из main()
     page.data["actions"] = {
@@ -486,6 +450,7 @@ def App() -> ft.Control:
         "start": start_conversion,
         "clear": clear_inputs,
         "help": show_help,
+        "close_help": close_help,
     }
 
     p = theme.palette(state.dark)
@@ -639,7 +604,7 @@ def App() -> ft.Control:
             controls=[left_column, right_column],
         )
 
-    return ft.Column(
+    shell = ft.Column(
         expand=True,
         spacing=0,
         horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
@@ -678,6 +643,16 @@ def App() -> ft.Control:
                 dark=state.dark,
                 gutter=lay.gutter,
             ),
+        ],
+    )
+
+    if state.help_phase == help_sheet.CLOSED:
+        return shell
+    return ft.Stack(
+        expand=True,
+        controls=[
+            shell,
+            HelpSheet(state.help_phase, close_help, state.dark, lay.gutter),
         ],
     )
 
@@ -723,6 +698,9 @@ def main(page: ft.Page) -> None:
         key = e.key.lower()
         if key == "f1":
             actions.get("help", lambda e=None: None)(None)
+            return
+        if key == "escape":
+            actions.get("close_help", lambda e=None: None)(None)
             return
         if not e.ctrl:
             return
