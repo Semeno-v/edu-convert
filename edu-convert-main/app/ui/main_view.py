@@ -148,6 +148,9 @@ class AppState:
     # перезапускает компонент, поэтому раскладка застывала на старой ширине
     # и «догоняла» окно только при следующей смене состояния — отсюда рывок.
     width: float = 0.0
+    # Высота нужна справке: карточка ограничивает свой список высотой окна,
+    # иначе на невысоком экране нижние строки уходят за край без прокрутки.
+    height: float = 0.0
 
     _run_result: RunResult | None = None
 
@@ -692,6 +695,7 @@ def App() -> ft.Control:
                 on_show_results=lambda e: setattr(state, "view", RESULTS),
                 dark=state.dark,
                 gutter=lay.gutter,
+                compact=lay.compact,
             ),
         ],
     )
@@ -702,7 +706,9 @@ def App() -> ft.Control:
         expand=True,
         controls=[
             shell,
-            HelpSheet(state.help_phase, close_help, state.dark, lay.gutter),
+            HelpSheet(state.help_phase, close_help, state.dark, lay.gutter,
+                      window_width=width or 0.0,
+                      window_height=state.height or page.height or 0.0),
         ],
     )
 
@@ -780,6 +786,7 @@ def main(page: ft.Page) -> None:
         """
         if (state := page.data.get("state")) is not None:
             state.width = page.width or 0.0
+            state.height = page.height or 0.0
 
     page.on_resize = on_resize
     page.render(App)

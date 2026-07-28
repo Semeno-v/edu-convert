@@ -99,6 +99,17 @@ class Layout:
     max_width: int  # предел ширины контента на широких мониторах
     hero: bool  # крупная зона выбора файлов вместо компактной
 
+    @property
+    def compact(self) -> bool:
+        """Окно слишком узкое для горизонтальных рядов кнопок и пилюль.
+
+        В этом режиме управляющие элементы выстраиваются в столбец. Flutter
+        не переносит содержимое ``Row`` по нехватке места, а обрезает его:
+        в нижней панели кнопка запуска наезжала на счётчик документов, и
+        счётчик просто пропадал под ней.
+        """
+        return self.mode == COMPACT
+
 
 def layout_for(width: float | None) -> Layout:
     """Подбирает раскладку по ширине окна.
@@ -113,8 +124,11 @@ def layout_for(width: float | None) -> Layout:
         return Layout(COMPACT, False, 0, SPACE_MD, SPACE_MD, 720, False)
     if w < _BREAKPOINT_EXPANDED:
         return Layout(MEDIUM, False, 0, SPACE_LG, SPACE_LG, 1000, True)
+    # 440, а не 400: в колонку уже 440 не помещались рядом заголовок панели
+    # «Источники данных» и пилюля состояния — заголовок переносился на две
+    # строки, а иконка оставалась висеть по центру рядом с ним.
     if w < _BREAKPOINT_LARGE:
-        return Layout(EXPANDED, True, 400, SPACE_XL, SPACE_LG, 1680, True)
+        return Layout(EXPANDED, True, 440, SPACE_XL, SPACE_LG, 1680, True)
     return Layout(LARGE, True, 470, SPACE_XL + SPACE_SM, SPACE_XL, 1920, True)
 
 

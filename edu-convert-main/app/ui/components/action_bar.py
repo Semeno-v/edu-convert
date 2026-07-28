@@ -30,14 +30,21 @@ def ActionBar(
     on_show_results: Callable[[ft.Event[ft.Control]], None],
     dark: bool = False,
     gutter: int = theme.SPACE_LG,
+    compact: bool = False,
 ) -> ft.Control:
-    """Строка состояния и запуска, закреплённая внизу окна."""
+    """Строка состояния и запуска, закреплённая внизу окна.
+
+    ``compact`` — узкое окно: состояние и кнопки встают в два этажа, кнопки
+    растягиваются на всю ширину. В одну строку они там не помещаются, а
+    ``Row`` не переносит содержимое, а обрезает: кнопка запуска наезжала
+    на счётчик документов и он исчезал под ней.
+    """
     p = theme.palette(dark)
 
     if running:
         left: ft.Control = ft.Column(
             spacing=6,
-            expand=True,
+            expand=not compact,
             tight=True,
             controls=[
                 ft.Row(
@@ -56,9 +63,14 @@ def ActionBar(
             ],
         )
     else:
+        # ``wrap`` — страховка и для широкого окна: длинная подпись «Выберите
+        # базу и шаблоны» вместе со счётчиком не всегда влезает в отведённую
+        # ширину, и без переноса вторая пилюля уходила под кнопку.
         left = ft.Row(
             spacing=8,
-            expand=True,
+            run_spacing=8,
+            wrap=True,
+            expand=not compact,
             vertical_alignment=ft.CrossAxisAlignment.CENTER,
             controls=[
                 Pill(
@@ -79,6 +91,9 @@ def ActionBar(
             ],
         )
 
+    # На узком окне кнопки делят ширину поровну (``expand``) и сжимают поля:
+    # иначе пара «Результаты + Конвертировать» не помещается даже в минимальные
+    # 600 px окна.
     actions: list[ft.Control] = []
     if done and not running:
         actions.append(
@@ -86,9 +101,12 @@ def ActionBar(
                 "Результаты",
                 icon=ft.Icons.ASSESSMENT_OUTLINED,
                 on_click=on_show_results,
+                expand=compact,
                 style=ft.ButtonStyle(
                     shape=ft.RoundedRectangleBorder(radius=theme.RADIUS_CONTROL),
-                    padding=ft.Padding.symmetric(horizontal=24, vertical=28),
+                    padding=ft.Padding.symmetric(
+                        horizontal=14 if compact else 24, vertical=24 if compact else 28
+                    ),
                     text_style=ft.TextStyle(size=16, weight=ft.FontWeight.W_600),
                 ),
             )
@@ -102,9 +120,12 @@ def ActionBar(
             disabled=not ready,
             tooltip=blocked_reason or "Запустить конвертацию (Ctrl+Enter)",
             on_click=on_start,
+            expand=compact,
             style=ft.ButtonStyle(
                 shape=ft.RoundedRectangleBorder(radius=theme.RADIUS_CONTROL),
-                padding=ft.Padding.symmetric(horizontal=32, vertical=30),
+                padding=ft.Padding.symmetric(
+                    horizontal=16 if compact else 32, vertical=26 if compact else 30
+                ),
                 text_style=ft.TextStyle(size=17, weight=ft.FontWeight.W_600),
             ),
         )
@@ -114,14 +135,23 @@ def ActionBar(
     # и общая анимация контейнера растягивала его перестройку на 680 мс —
     # панель отставала от края окна при перетаскивании. Перекраску при смене
     # темы берут на себя токены ``ColorScheme``.
+    buttons = ft.Row(actions, spacing=10, tight=not compact)
+    content = (
+        ft.Column(spacing=theme.SPACE_SM, tight=True, controls=[left, buttons])
+        if compact
+        else ft.Row(
+            spacing=theme.SPACE_MD,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            controls=[left, buttons],
+        )
+    )
+
     return ft.Container(
         bgcolor=ft.Colors.SURFACE,
         border=ft.Border.only(top=ft.BorderSide(1, ft.Colors.OUTLINE_VARIANT)),
-        padding=ft.Padding.symmetric(horizontal=gutter, vertical=theme.SPACE_MD),
-        content=ft.Row(
-            spacing=theme.SPACE_MD,
-            vertical_alignment=ft.CrossAxisAlignment.CENTER,
-            wrap=False,
-            controls=[left, ft.Row(actions, spacing=10, tight=True)],
+        padding=ft.Padding.symmetric(
+            horizontal=gutter,
+            vertical=theme.SPACE_SM if compact else theme.SPACE_MD,
         ),
+        content=content,
     )

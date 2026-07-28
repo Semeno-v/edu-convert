@@ -57,6 +57,14 @@ SHEET_WIDTH = 560
 # ширины пилюли и интервала между ними.
 _ANCHOR_OFFSET = 88
 
+# Ниже этой ширины карточка занимает окно целиком за вычетом полей: 560 px
+# при окне 600 вылезали за левый край, и половина текста оказывалась срезана.
+_FULL_WIDTH_BELOW = SHEET_WIDTH + _ANCHOR_OFFSET + theme.SPACE_LG * 2
+
+# Что в карточке занимает высоту помимо прокручиваемого списка: поля сверху
+# и снизу, строка заголовка с крестиком и отступ под ней.
+_CHROME_HEIGHT = theme.SPACE_LG * 2 + 48 + theme.SPACE_MD
+
 
 def _line(icon: str, text: str) -> ft.Control:
     return ft.Row(
@@ -69,13 +77,16 @@ def _line(icon: str, text: str) -> ft.Control:
     )
 
 
-def _key(combo: str, text: str) -> ft.Control:
+def _key(combo: str, text: str, narrow: bool = False) -> ft.Control:
     return ft.Row(
         spacing=12,
         vertical_alignment=ft.CrossAxisAlignment.CENTER,
         controls=[
+            # На узкой карточке пилюля с сочетанием ужимается: при 126 px
+            # на пояснение оставалось слишком мало места и «вставить файлы
+            # из буфера» переносилось на вторую строку.
             ft.Container(
-                width=126,
+                width=104 if narrow else 126,
                 bgcolor=ft.Colors.SURFACE_CONTAINER_HIGH,
                 border_radius=9,
                 padding=ft.Padding.symmetric(horizontal=10, vertical=6),
@@ -86,7 +97,42 @@ def _key(combo: str, text: str) -> ft.Control:
     )
 
 
-def _content(on_close: Callable[[ft.Event[ft.Control]], None]) -> ft.Control:
+def _content(
+    on_close: Callable[[ft.Event[ft.Control]], None],
+    body_height: float | None = None,
+    narrow: bool = False,
+) -> ft.Control:
+    """Заголовок и прокручиваемое тело справки.
+
+    Заголовок с крестиком закреплён, а список уезжает в скролл: на невысоком
+    окне карточка не помещалась целиком и нижние строки — включая «Esc —
+    закрыть справку» — оказывались за краем экрана без всякой возможности
+    до них добраться.
+    """
+    body = ft.Column(
+        tight=True,
+        spacing=theme.SPACE_MD,
+        scroll=ft.ScrollMode.AUTO,
+        height=body_height,
+        controls=[
+            _line(ft.Icons.TABLE_VIEW_ROUNDED,
+                  "Числа (зачётные единицы, часы, семестры) берутся из учебного "
+                  "плана — он единственный источник истины."),
+            _line(ft.Icons.DESCRIPTION_OUTLINED,
+                  "Текстовые блоки (литература, темы, оценочные средства) "
+                  "переносятся из старых РПД и ФОС."),
+            _line(ft.Icons.FORMAT_PAINT_OUTLINED,
+                  "Всё подставленное конвертацией выделяется жёлтым, "
+                  "старые числа попадают только в отчёт о расхождениях."),
+            ft.Divider(),
+            _key("Ctrl + O", "выбрать файлы", narrow),
+            _key("Ctrl + D", "добавить папку", narrow),
+            _key("Ctrl + V", "вставить файлы из буфера", narrow),
+            _key("Ctrl + Enter", "запустить конвертацию", narrow),
+            _key("Ctrl + L", "очистить список", narrow),
+            _key("Esc", "закрыть справку", narrow),
+        ],
+    )
     return ft.Column(
         tight=True,
         spacing=theme.SPACE_MD,
@@ -101,22 +147,7 @@ def _content(on_close: Callable[[ft.Event[ft.Control]], None]) -> ft.Control:
                                   tooltip="Закрыть (Esc)", on_click=on_close),
                 ],
             ),
-            _line(ft.Icons.TABLE_VIEW_ROUNDED,
-                  "Числа (зачётные единицы, часы, семестры) берутся из учебного "
-                  "плана — он единственный источник истины."),
-            _line(ft.Icons.DESCRIPTION_OUTLINED,
-                  "Текстовые блоки (литература, темы, оценочные средства) "
-                  "переносятся из старых РПД и ФОС."),
-            _line(ft.Icons.FORMAT_PAINT_OUTLINED,
-                  "Всё подставленное конвертацией выделяется жёлтым, "
-                  "старые числа попадают только в отчёт о расхождениях."),
-            ft.Divider(),
-            _key("Ctrl + O", "выбрать файлы"),
-            _key("Ctrl + D", "добавить папку"),
-            _key("Ctrl + V", "вставить файлы из буфера"),
-            _key("Ctrl + Enter", "запустить конвертацию"),
-            _key("Ctrl + L", "очистить список"),
-            _key("Esc", "закрыть справку"),
+            body,
         ],
     )
 
@@ -127,10 +158,37 @@ def HelpSheet(
     on_close: Callable[[ft.Event[ft.Control]], None],
     dark: bool = False,
     gutter: int = theme.SPACE_LG,
+    window_width: float = 0.0,
+    window_height: float = 0.0,
 ) -> ft.Control:
-    """Слой справки поверх приложения; ``phase`` управляет анимацией."""
+    """Слой справки поверх приложения; ``phase`` управляет анимацией.
+
+    ``window_width`` и ``window_height`` задают, во что карточке разрешено
+    вырасти. Раньше размеры были жёстко зашиты (560 px, высота по содержимому):
+    на окне уже 700 px карточка вылезала за левый край, а на невысоком —
+    за нижний, и часть справки прочитать было нельзя.
+    """
     shown = phase == OPEN
     entering = phase in (ENTER, OPEN)
+
+    narrow = bool(window_width) and window_width < _FULL_WIDTH_BELOW
+    if narrow:
+        # Карточка занимает окно за вычетом полей, а точка роста смещается
+        # к правому краю — кнопка «?» остаётся ближайшим к ней углом.
+        sheet_width = max(window_width - gutter * 2, 240.0)
+        anchor_right = float(gutter)
+    else:
+        sheet_width = float(SHEET_WIDTH)
+        anchor_right = float(gutter + _ANCHOR_OFFSET)
+
+    sheet_top = theme.TOP_BAR_HEIGHT - 6
+    # Высота тела = окно минус шапка, поля карточки, её заголовок и нижний
+    # отступ. None на неизвестной высоте окна — тогда карточка растёт по
+    # содержимому, как раньше.
+    body_height = (
+        max(window_height - sheet_top - gutter - _CHROME_HEIGHT, 160.0)
+        if window_height else None
+    )
 
     scale_motion = ft.Animation(
         ENTER_MS if entering else EXIT_MS,
@@ -159,9 +217,9 @@ def HelpSheet(
 
     sheet = ft.Container(
         key="help-sheet",
-        right=gutter + _ANCHOR_OFFSET,
-        top=theme.TOP_BAR_HEIGHT - 6,
-        width=SHEET_WIDTH,
+        right=anchor_right,
+        top=sheet_top,
+        width=sheet_width,
         bgcolor=ft.Colors.SURFACE,
         border=ft.Border.all(1, ft.Colors.OUTLINE_VARIANT),
         border_radius=theme.RADIUS_CARD,
@@ -173,7 +231,7 @@ def HelpSheet(
         animate_scale=scale_motion,
         opacity=1.0 if shown else 0.0,
         animate_opacity=fade_motion,
-        content=_content(on_close),
+        content=_content(on_close, body_height, narrow),
     )
 
     # Форма дерева обязана быть одинаковой во всех фазах. Любое изменение
