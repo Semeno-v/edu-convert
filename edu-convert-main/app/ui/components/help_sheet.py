@@ -181,6 +181,7 @@ def HelpSheet(
         sheet_width = float(SHEET_WIDTH)
         anchor_right = float(gutter + _ANCHOR_OFFSET)
 
+    print(f"HELPDBG w={window_width} h={window_height} gutter={gutter}", flush=True)
     sheet_top = theme.TOP_BAR_HEIGHT - 6
     # Высота тела = окно минус шапка, поля карточки, её заголовок и нижний
     # отступ. None на неизвестной высоте окна — тогда карточка растёт по
