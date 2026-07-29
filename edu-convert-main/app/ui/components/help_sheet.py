@@ -61,9 +61,9 @@ _ANCHOR_OFFSET = 88
 # при окне 600 вылезали за левый край, и половина текста оказывалась срезана.
 _FULL_WIDTH_BELOW = SHEET_WIDTH + _ANCHOR_OFFSET + theme.SPACE_LG * 2
 
-# Что в карточке занимает высоту помимо прокручиваемого списка: поля сверху
-# и снизу, строка заголовка с крестиком и отступ под ней.
-_CHROME_HEIGHT = theme.SPACE_LG * 2 + 48 + theme.SPACE_MD
+# Ниже этой высоты карточку не ужимаем: остаётся заголовок и хоть сколько-то
+# прокручиваемого текста, дальше сжимать уже нечего.
+_MIN_SHEET_HEIGHT = 260.0
 
 
 def _line(icon: str, text: str) -> ft.Control:
@@ -99,7 +99,7 @@ def _key(combo: str, text: str, narrow: bool = False) -> ft.Control:
 
 def _content(
     on_close: Callable[[ft.Event[ft.Control]], None],
-    body_height: float | None = None,
+    bounded: bool = False,
     narrow: bool = False,
 ) -> ft.Control:
     """Заголовок и прокручиваемое тело справки.
@@ -110,10 +110,10 @@ def _content(
     до них добраться.
     """
     body = ft.Column(
-        tight=True,
+        tight=not bounded,
+        expand=bounded,
         spacing=theme.SPACE_MD,
         scroll=ft.ScrollMode.AUTO,
-        height=body_height,
         controls=[
             _line(ft.Icons.TABLE_VIEW_ROUNDED,
                   "Числа (зачётные единицы, часы, семестры) берутся из учебного "
@@ -134,7 +134,8 @@ def _content(
         ],
     )
     return ft.Column(
-        tight=True,
+        tight=not bounded,
+        expand=bounded,
         spacing=theme.SPACE_MD,
         controls=[
             ft.Row(
@@ -181,13 +182,14 @@ def HelpSheet(
         sheet_width = float(SHEET_WIDTH)
         anchor_right = float(gutter + _ANCHOR_OFFSET)
 
-    print(f"HELPDBG w={window_width} h={window_height} gutter={gutter}", flush=True)
     sheet_top = theme.TOP_BAR_HEIGHT - 6
-    # Высота тела = окно минус шапка, поля карточки, её заголовок и нижний
-    # отступ. None на неизвестной высоте окна — тогда карточка растёт по
-    # содержимому, как раньше.
-    body_height = (
-        max(window_height - sheet_top - gutter - _CHROME_HEIGHT, 160.0)
+    # Потолок высоты ставится самой карточке, а не списку внутри неё: заданная
+    # ``ft.Column`` высота внутри другой колонки не удержала содержимое, и
+    # карточка всё равно уезжала за нижний край окна. Контейнер с ``height``
+    # ограничивает надёжно, а список внутри разбирается со скроллом сам.
+    # None на неизвестной высоте окна — карточка растёт по содержимому.
+    sheet_height = (
+        max(window_height - sheet_top - gutter * 2, _MIN_SHEET_HEIGHT)
         if window_height else None
     )
 
@@ -221,6 +223,7 @@ def HelpSheet(
         right=anchor_right,
         top=sheet_top,
         width=sheet_width,
+        height=sheet_height,
         bgcolor=ft.Colors.SURFACE,
         border=ft.Border.all(1, ft.Colors.OUTLINE_VARIANT),
         border_radius=theme.RADIUS_CARD,
@@ -232,7 +235,7 @@ def HelpSheet(
         animate_scale=scale_motion,
         opacity=1.0 if shown else 0.0,
         animate_opacity=fade_motion,
-        content=_content(on_close, body_height, narrow),
+        content=_content(on_close, sheet_height is not None, narrow),
     )
 
     # Форма дерева обязана быть одинаковой во всех фазах. Любое изменение

@@ -26,63 +26,110 @@ def _matches(query: str, *fields: str) -> bool:
     return not q or any(q in (f or "").lower() for f in fields)
 
 
-def _diff_row(index: int, subject: str, field: str, old: str, new: str, dark: bool) -> ft.Control:
+def _diff_row(index: int, subject: str, field: str, old: str, new: str,
+              dark: bool, compact: bool = False) -> ft.Control:
     p = theme.palette(dark)
-    return ft.Container(
-        bgcolor=ft.Colors.SURFACE_CONTAINER_LOW if index % 2 else None,
-        padding=ft.Padding.symmetric(horizontal=18, vertical=14),
-        content=ft.Row(
+    # Пара «было → стало» не сжимается: числа короткие, но зачёркнутое старое
+    # значение со стрелкой требует своей ширины, и на узком окне колонка
+    # с дисциплиной выдавливала её за правый край.
+    change = ft.Row(
+        expand=None if compact else 3,
+        spacing=8,
+        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+        tight=compact,
+        controls=[
+            ft.Text(old, size=15, color=p.danger,
+                    style=ft.TextStyle(
+                        color=p.danger,
+                        decoration=ft.TextDecoration.LINE_THROUGH)),
+            ft.Icon(ft.Icons.ARROW_RIGHT_ALT_ROUNDED, size=20,
+                    color=ft.Colors.ON_SURFACE_VARIANT),
+            ft.Text(new, size=15, color=p.ok, weight=ft.FontWeight.W_700),
+        ],
+    )
+    field_text = ft.Text(field, size=15, expand=True if compact else 4,
+                         max_lines=1, overflow=ft.TextOverflow.ELLIPSIS,
+                         tooltip=field)
+    if compact:
+        # Три колонки в 600 px не помещаются, поэтому строка становится
+        # карточкой: дисциплина сверху, поле и изменение — под ней.
+        content: ft.Control = ft.Column(
+            spacing=4,
+            tight=True,
+            controls=[
+                ft.Text(subject, size=13, color=ft.Colors.ON_SURFACE_VARIANT,
+                        max_lines=1, overflow=ft.TextOverflow.ELLIPSIS,
+                        tooltip=subject),
+                ft.Row(
+                    spacing=12,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    controls=[field_text, change],
+                ),
+            ],
+        )
+    else:
+        content = ft.Row(
             spacing=12,
             vertical_alignment=ft.CrossAxisAlignment.CENTER,
             controls=[
                 ft.Text(subject, size=15, expand=3, max_lines=1,
                         overflow=ft.TextOverflow.ELLIPSIS, tooltip=subject),
-                ft.Text(field, size=15, expand=4, max_lines=1,
-                        overflow=ft.TextOverflow.ELLIPSIS, tooltip=field),
-                ft.Row(
-                    expand=3,
-                    spacing=8,
-                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                    controls=[
-                        ft.Text(old, size=15, color=p.danger,
-                                style=ft.TextStyle(
-                                    color=p.danger,
-                                    decoration=ft.TextDecoration.LINE_THROUGH)),
-                        ft.Icon(ft.Icons.ARROW_RIGHT_ALT_ROUNDED, size=20,
-                                color=ft.Colors.ON_SURFACE_VARIANT),
-                        ft.Text(new, size=15, color=p.ok, weight=ft.FontWeight.W_700),
-                    ],
-                ),
+                field_text,
+                change,
             ],
-        ),
+        )
+    return ft.Container(
+        bgcolor=ft.Colors.SURFACE_CONTAINER_LOW if index % 2 else None,
+        padding=ft.Padding.symmetric(horizontal=18, vertical=14),
+        content=content,
     )
 
 
-def _file_row(result: FileResult, dark: bool) -> ft.Control:
-    return ft.Container(
-        padding=ft.Padding.symmetric(horizontal=18, vertical=13),
-        content=ft.Row(
+def _file_row(result: FileResult, dark: bool, compact: bool = False) -> ft.Control:
+    name = ft.Column(
+        spacing=2,
+        expand=None if compact else 5,
+        tight=True,
+        controls=[
+            ft.Text(result.filename, size=15, max_lines=1,
+                    overflow=ft.TextOverflow.ELLIPSIS,
+                    tooltip=result.filename),
+            ft.Text(result.index or "индекс не определён", size=13,
+                    color=ft.Colors.ON_SURFACE_VARIANT),
+        ],
+    )
+    message = ft.Text(result.message or "—", size=14,
+                      expand=True if compact else 5, max_lines=2,
+                      color=ft.Colors.ON_SURFACE_VARIANT,
+                      overflow=ft.TextOverflow.ELLIPSIS, tooltip=result.message)
+    if compact:
+        # Имя файла, бейдж и сообщение в одну строку на 600 px не влезают:
+        # бейдж «Расхождение» отжимал имя до пары букв.
+        content: ft.Control = ft.Column(
+            spacing=6,
+            tight=True,
+            controls=[
+                name,
+                ft.Row(
+                    spacing=10,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    controls=[StatusBadge(result.status, dark), message],
+                ),
+            ],
+        )
+    else:
+        content = ft.Row(
             spacing=12,
             vertical_alignment=ft.CrossAxisAlignment.CENTER,
             controls=[
-                ft.Column(
-                    spacing=2,
-                    expand=5,
-                    tight=True,
-                    controls=[
-                        ft.Text(result.filename, size=15, max_lines=1,
-                                overflow=ft.TextOverflow.ELLIPSIS,
-                                tooltip=result.filename),
-                        ft.Text(result.index or "индекс не определён", size=13,
-                                color=ft.Colors.ON_SURFACE_VARIANT),
-                    ],
-                ),
+                name,
                 ft.Container(StatusBadge(result.status, dark), expand=2),
-                ft.Text(result.message or "—", size=14, expand=5, max_lines=2,
-                        color=ft.Colors.ON_SURFACE_VARIANT,
-                        overflow=ft.TextOverflow.ELLIPSIS, tooltip=result.message),
+                message,
             ],
-        ),
+        )
+    return ft.Container(
+        padding=ft.Padding.symmetric(horizontal=18, vertical=13),
+        content=content,
     )
 
 
@@ -119,8 +166,15 @@ def ResultsView(
     on_back: Callable[[ft.Event[ft.Control]], None],
     dark: bool = False,
     fill: bool = False,
+    compact: bool = False,
 ) -> ft.Control:
-    """Панель результатов; ``fill`` — растянуть таблицы на всю высоту окна."""
+    """Панель результатов.
+
+    ``fill`` — растянуть таблицы на всю высоту окна. ``compact`` — узкое окно:
+    шапка разъезжается на два этажа, у вкладок остаются только подписи, а
+    плитки сводки встают друг под друга. В одну строку это не помещается,
+    а ``Row`` не переносит содержимое, а обрезает.
+    """
     tab, set_tab = ft.use_state(SUMMARY)
     query, set_query = ft.use_state("")
     p = theme.palette(dark)
@@ -131,34 +185,45 @@ def ResultsView(
     failed = sum(1 for r in results if r.status == FileStatus.ERROR)
     diffs = [(r, d) for r in results for d in r.diffs]
 
-    search = ft.TextField(
-        value=query,
-        hint_text="Поиск по дисциплине, полю или файлу…",
-        prefix_icon=ft.Icons.SEARCH_ROUNDED,
-        dense=True,
-        filled=True,
-        border_radius=theme.RADIUS_CONTROL,
-        border_color=p.hairline,
-        content_padding=ft.Padding.symmetric(horizontal=18, vertical=16),
-        text_size=16,
-        on_change=lambda e: set_query(e.control.value),
-    )
+    # Поле обёрнуто в ``Row``: ``Column`` выравнивает детей по левому краю и
+    # оставляет им собственную ширину, поэтому поиск занимал половину карточки
+    # и обрывал подсказку на «Поиск по дисциплине, полю …».
+    search = ft.Row([
+        ft.TextField(
+            value=query,
+            expand=True,
+            hint_text="Поиск по дисциплине, полю или файлу…",
+            prefix_icon=ft.Icons.SEARCH_ROUNDED,
+            dense=True,
+            filled=True,
+            border_radius=theme.RADIUS_CONTROL,
+            border_color=p.hairline,
+            content_padding=ft.Padding.symmetric(horizontal=18, vertical=16),
+            text_size=16,
+            on_change=lambda e: set_query(e.control.value),
+        )
+    ])
 
     if tab == SUMMARY:
+        cards = [
+            StatCard("Успешно", succeeded, total, p.ok, p.ok_bg,
+                     ft.Icons.CHECK_CIRCLE_ROUNDED, compact),
+            StatCard("Расхождения", with_diffs, total, p.warn, p.warn_bg,
+                     ft.Icons.CHANGE_CIRCLE_ROUNDED, compact),
+            StatCard("Ошибки", failed, total, p.danger, p.danger_bg,
+                     ft.Icons.ERROR_ROUNDED, compact),
+        ]
         body: ft.Control = ft.Column(
             spacing=theme.SPACE_MD,
             controls=[
-                ft.Row(
-                    spacing=theme.SPACE_MD,
-                    controls=[
-                        StatCard("Успешно", succeeded, total, p.ok, p.ok_bg,
-                                 ft.Icons.CHECK_CIRCLE_ROUNDED),
-                        StatCard("Расхождения", with_diffs, total, p.warn, p.warn_bg,
-                                 ft.Icons.CHANGE_CIRCLE_ROUNDED),
-                        StatCard("Ошибки", failed, total, p.danger, p.danger_bg,
-                                 ft.Icons.ERROR_ROUNDED),
-                    ],
-                ),
+                # На узком окне три плитки делили бы между собой около 170 px,
+                # и подпись «Расхождения» обрезалась многоточием сразу за «Рас».
+                # Каждая плитка обёрнута в свой ``Row``: у ``StatCard`` стоит
+                # ``expand``, и внутри колонки он растягивал бы её по высоте.
+                ft.Column(spacing=theme.SPACE_SM, tight=True,
+                          controls=[ft.Row([c]) for c in cards])
+                if compact
+                else ft.Row(spacing=theme.SPACE_MD, controls=cards),
                 ft.Container(
                     bgcolor=ft.Colors.SURFACE_CONTAINER_LOW,
                     border_radius=theme.RADIUS_CONTROL,
@@ -190,7 +255,8 @@ def ResultsView(
         )
     elif tab == DIFFS:
         rows = [
-            _diff_row(i, r.index or r.filename, d.field, d.old_value, d.new_value, dark)
+            _diff_row(i, r.index or r.filename, d.field, d.old_value, d.new_value,
+                      dark, compact)
             for i, (r, d) in enumerate(
                 (r, d) for r, d in diffs
                 if _matches(query, r.index, r.filename, d.field, d.old_value, d.new_value)
@@ -218,7 +284,7 @@ def ResultsView(
         )
     else:
         rows = [
-            _file_row(r, dark) for r in results
+            _file_row(r, dark, compact) for r in results
             if _matches(query, r.filename, r.index, r.message)
         ]
         body = ft.Column(
@@ -236,22 +302,30 @@ def ResultsView(
             ],
         )
 
+    # На узком окне у сегментов убираются иконки и ужимаются поля: подпись
+    # «Расхождения · 12» вместе с иконкой не помещалась, и переключатель
+    # вылезал за правый край карточки.
     tabs = ft.SegmentedButton(
         selected=[tab],
         allow_empty_selection=False,
         show_selected_icon=False,
         style=ft.ButtonStyle(
             shape=ft.RoundedRectangleBorder(radius=theme.RADIUS_CONTROL),
-            text_style=ft.TextStyle(size=15, weight=ft.FontWeight.W_600),
-            padding=ft.Padding.symmetric(horizontal=16, vertical=18),
+            text_style=ft.TextStyle(size=14 if compact else 15,
+                                    weight=ft.FontWeight.W_600),
+            padding=ft.Padding.symmetric(horizontal=6 if compact else 16,
+                                         vertical=18),
         ),
         segments=[
             ft.Segment(value=SUMMARY, label=ft.Text("Сводка"),
-                       icon=ft.Icon(ft.Icons.DONUT_LARGE_ROUNDED, size=20)),
+                       icon=None if compact
+                       else ft.Icon(ft.Icons.DONUT_LARGE_ROUNDED, size=20)),
             ft.Segment(value=DIFFS, label=ft.Text(f"Расхождения · {len(diffs)}"),
-                       icon=ft.Icon(ft.Icons.COMPARE_ARROWS_ROUNDED, size=20)),
+                       icon=None if compact
+                       else ft.Icon(ft.Icons.COMPARE_ARROWS_ROUNDED, size=20)),
             ft.Segment(value=FILES, label=ft.Text(f"Файлы · {total}"),
-                       icon=ft.Icon(ft.Icons.FOLDER_COPY_OUTLINED, size=20)),
+                       icon=None if compact
+                       else ft.Icon(ft.Icons.FOLDER_COPY_OUTLINED, size=20)),
         ],
         on_change=lambda e: set_tab(next(iter(e.data), SUMMARY)),
     )
@@ -289,46 +363,64 @@ def ResultsView(
             )
         )
 
+    title = ft.Column(
+        spacing=2,
+        expand=True,
+        tight=True,
+        controls=[
+            ft.Text("Результаты конвертации", size=20 if compact else 23,
+                    weight=ft.FontWeight.BOLD, color=ft.Colors.ON_SURFACE,
+                    max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
+            ft.Text(f"Обработано документов: {total}", size=15,
+                    color=ft.Colors.ON_SURFACE_VARIANT),
+        ],
+    )
+    back = ft.IconButton(
+        icon=ft.Icons.ARROW_BACK_ROUNDED,
+        icon_size=24,
+        tooltip="Вернуться к настройке",
+        on_click=on_back,
+    )
+    ok_pill = Pill(f"{succeeded} успешно", icon=ft.Icons.CHECK_ROUNDED,
+                   fg=p.ok, bg=p.ok_bg, compact=True)
+    download = ft.FilledButton(
+        "Скачать .zip",
+        icon=ft.Icons.DOWNLOAD_ROUNDED,
+        on_click=on_download,
+        expand=compact,
+        style=ft.ButtonStyle(
+            shape=ft.RoundedRectangleBorder(radius=theme.RADIUS_CONTROL),
+            padding=ft.Padding.symmetric(horizontal=16 if compact else 26,
+                                         vertical=28),
+            text_style=ft.TextStyle(size=16, weight=ft.FontWeight.W_600),
+        ),
+    )
+    # Заголовок, пилюля и кнопка скачивания в 600 px в одну строку не влезают:
+    # «Скачать .zip» съезжала за край, а заголовок сжимался до многоточия.
+    header: ft.Control = (
+        ft.Column(
+            spacing=theme.SPACE_SM,
+            tight=True,
+            controls=[
+                ft.Row([back, title], spacing=theme.SPACE_SM,
+                       vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                ft.Row([ok_pill, download], spacing=theme.SPACE_SM,
+                       vertical_alignment=ft.CrossAxisAlignment.CENTER),
+            ],
+        )
+        if compact
+        else ft.Row(
+            spacing=theme.SPACE_SM,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            controls=[back, title, ok_pill, download],
+        )
+    )
+
     return ft.Column(
         spacing=theme.SPACE_MD,
         expand=fill,
         controls=[
-            ft.Row(
-                spacing=theme.SPACE_SM,
-                vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                controls=[
-                    ft.IconButton(
-                        icon=ft.Icons.ARROW_BACK_ROUNDED,
-                        icon_size=24,
-                        tooltip="Вернуться к настройке",
-                        on_click=on_back,
-                    ),
-                    ft.Column(
-                        spacing=2,
-                        expand=True,
-                        tight=True,
-                        controls=[
-                            ft.Text("Результаты конвертации", size=23,
-                                    weight=ft.FontWeight.BOLD,
-                                    color=ft.Colors.ON_SURFACE),
-                            ft.Text(f"Обработано документов: {total}", size=15,
-                                    color=ft.Colors.ON_SURFACE_VARIANT),
-                        ],
-                    ),
-                    Pill(f"{succeeded} успешно", icon=ft.Icons.CHECK_ROUNDED,
-                         fg=p.ok, bg=p.ok_bg, compact=True),
-                    ft.FilledButton(
-                        "Скачать .zip",
-                        icon=ft.Icons.DOWNLOAD_ROUNDED,
-                        on_click=on_download,
-                        style=ft.ButtonStyle(
-                            shape=ft.RoundedRectangleBorder(radius=theme.RADIUS_CONTROL),
-                            padding=ft.Padding.symmetric(horizontal=26, vertical=28),
-                            text_style=ft.TextStyle(size=16, weight=ft.FontWeight.W_600),
-                        ),
-                    ),
-                ],
-            ),
+            header,
             tabs,
             *warning,
             body,

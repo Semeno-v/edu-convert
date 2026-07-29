@@ -58,30 +58,43 @@ def Pill(
 
 
 @ft.component
-def StatCard(label: str, value: int, total: int, fg: str, bg: str, icon: str) -> ft.Control:
-    """Плитка сводки: число, подпись и доля от общего количества файлов."""
+def StatCard(label: str, value: int, total: int, fg: str, bg: str, icon: str,
+             compact: bool = False) -> ft.Control:
+    """Плитка сводки: число, подпись и доля от общего количества файлов.
+
+    ``compact`` — узкое окно: плитки стоят друг под другом, и три штуки с
+    числом в 38 px занимали весь экран, вытесняя всё остальное за нижний край.
+    Поэтому число переезжает на одну строку с подписью и уменьшается.
+    """
     share = value / total if total else 0.0
+    head = ft.Row(
+        spacing=8,
+        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+        controls=[
+            ft.Icon(icon, size=20, color=fg),
+            ft.Text(
+                label, size=15, color=fg, weight=ft.FontWeight.W_600,
+                expand=True, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS,
+            ),
+            *([ft.Text(str(value), size=26, weight=ft.FontWeight.BOLD, color=fg)]
+              if compact else []),
+        ],
+    )
     return ft.Container(
         expand=True,
         bgcolor=bg,
         border_radius=theme.RADIUS_CONTROL,
-        padding=ft.Padding.symmetric(horizontal=20, vertical=18),
+        padding=ft.Padding.symmetric(
+            horizontal=20, vertical=14 if compact else 18
+        ),
         content=ft.Column(
-            spacing=10,
+            spacing=8 if compact else 10,
             tight=True,
             controls=[
-                ft.Row(
-                    spacing=8,
-                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                    controls=[
-                        ft.Icon(icon, size=20, color=fg),
-                        ft.Text(
-                            label, size=15, color=fg, weight=ft.FontWeight.W_600,
-                            expand=True, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS,
-                        ),
-                    ],
-                ),
-                ft.Text(str(value), size=38, weight=ft.FontWeight.BOLD, color=fg),
+                head,
+                *([] if compact
+                  else [ft.Text(str(value), size=38, weight=ft.FontWeight.BOLD,
+                                color=fg)]),
                 ft.ProgressBar(
                     value=share,
                     bar_height=6,

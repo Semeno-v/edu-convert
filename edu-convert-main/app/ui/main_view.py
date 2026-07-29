@@ -564,6 +564,7 @@ def App() -> ft.Control:
                 on_back=lambda e: setattr(state, "view", SETUP),
                 dark=state.dark,
                 fill=fill,
+                compact=lay.compact,
             ),
         )
     else:
@@ -784,9 +785,6 @@ def main(page: ft.Page) -> None:
         прежней и перескакивала позже, вместе с посторонним обновлением.
         Присваивание поля observable-состояния запускает честную пересборку.
         """
-        print(f"RESIZEDBG page={page.width}x{page.height} "
-              f"win={page.window.width}x{page.window.height} data={e.data!r}",
-              flush=True)
         if (state := page.data.get("state")) is not None:
             state.width = page.width or 0.0
             state.height = page.height or 0.0
