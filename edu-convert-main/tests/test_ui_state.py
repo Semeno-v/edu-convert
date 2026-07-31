@@ -62,3 +62,36 @@ def test_add_dir_skips_word_lock_files(tmp_path: Path) -> None:
 
     assert state.add_dir(str(tmp_path)) == 1
     assert [p.name for p in state.input_files] == ["РПД.docx"]
+
+
+def test_successful_action_clears_previous_error(tmp_path: Path) -> None:
+    """Сообщение об ошибке гаснет на следующем удачном действии.
+
+    Раньше оно сбрасывалось только в start(): красная плашка о недоступной
+    папке висела и после того, как файлы были успешно добавлены вручную.
+    """
+    (tmp_path / "РПД.docx").touch()
+    state = AppState()
+    state.add_dir(str(tmp_path / "нет-такой"))
+    assert state.error
+
+    assert state.add_files([str(tmp_path / "РПД.docx")]) == 1
+    assert state.error == ""
+
+
+def test_every_mutator_clears_error(tmp_path: Path) -> None:
+    """Сбрасывает каждый мутатор, а не только добавление файлов."""
+    db = tmp_path / "база.xlsx"
+    db.touch()
+    for mutate in (
+        lambda s: s.set_db(str(db)),
+        lambda s: s.set_rpd(str(db)),
+        lambda s: s.set_fos(str(db)),
+        lambda s: s.add_dir(str(tmp_path)),
+        lambda s: s.clear_inputs(),
+        lambda s: s.remove_file(Path("/x/нет.docx")),
+    ):
+        state = AppState()
+        state.error = "прошлая ошибка"
+        mutate(state)
+        assert state.error == ""

@@ -13,8 +13,12 @@ from pathlib import Path
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-TEMPLATES_DIR = PROJECT_ROOT / "templates"
+PACKAGE_ROOT = Path(__file__).resolve().parent
+PROJECT_ROOT = PACKAGE_ROOT.parent
+# Шаблоны лежат внутри пакета, а не рядом с ним: при ``pip install .`` корень
+# репозитория остаётся снаружи, и путь вида ``PROJECT_ROOT / "templates"``
+# уводил в site-packages, где никаких шаблонов нет.
+TEMPLATES_DIR = PACKAGE_ROOT / "templates"
 
 
 class Settings(BaseSettings):

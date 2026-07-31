@@ -1,7 +1,7 @@
 """Разметка официальных форм 2026 тегами docxtpl (этап B плана).
 
 Берёт исходные пустые формы ГУУ (с редакторскими подписями) и порождает
-размеченные шаблоны в ``templates/``:
+размеченные шаблоны в ``app/templates/``:
 
 * ``rpd_2026_tagged.docx`` — РПД;
 * ``fos_2026_tagged.docx`` — ФОС.
@@ -39,7 +39,7 @@ def strip_red_highlights(doc: Document) -> None:
             h.getparent().remove(h)
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-TEMPLATES_DIR = PROJECT_ROOT / "templates"
+TEMPLATES_DIR = PROJECT_ROOT / "app" / "templates"
 
 
 # --------------------------------------------------------------------------- #

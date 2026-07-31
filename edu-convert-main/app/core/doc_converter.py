@@ -139,8 +139,17 @@ class LibreOfficeConverter:
                     f"Не удалось запустить LibreOffice ('{self.binary}'): {exc}"
                 ) from exc
 
+        detail = (completed.stderr or completed.stdout or "").strip()
+        # Ненулевой код возврата — самый прямой признак сбоя, и раньше он терялся:
+        # смотрели только на наличие файла. LibreOffice умеет записать частично
+        # сконвертированный документ и выйти с ошибкой — такой файл уходил
+        # в выдачу как успешный результат.
+        if completed.returncode != 0:
+            raise DocConversionError(
+                f"LibreOffice завершился с кодом {completed.returncode} при конвертации "
+                f"'{path.name}'" + (f": {detail}" if detail else "")
+            )
         if not out_path.exists():
-            detail = (completed.stderr or completed.stdout or "").strip()
             raise DocConversionError(
                 f"LibreOffice не создал файл '{out_path.name}'"
                 + (f": {detail}" if detail else "")

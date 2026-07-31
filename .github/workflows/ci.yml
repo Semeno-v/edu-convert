@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Проект лежит в подкаталоге репозитория, поэтому все шаги выполняются оттуда.
+defaults:
+  run:
+    working-directory: edu-convert-main
+
+jobs:
+  test:
+    name: Тесты и покрытие
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+          cache: pip
+      # LibreOffice в раннер не ставится: тесты .doc-конвертации сами скипаются,
+      # когда soffice не найден, а установка пакета съедает минуты на каждый прогон.
+      - run: pip install -e .[dev]
+      - run: tox
+
+  lint:
+    name: ruff
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+          cache: pip
+      - run: pip install -e .[dev]
+      - run: ruff check .
+
+  types:
+    name: mypy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+          cache: pip
+      - run: pip install -e .[dev]
+      - run: mypy

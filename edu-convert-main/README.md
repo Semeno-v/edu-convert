@@ -38,15 +38,21 @@ uvicorn app.main:app --port 8000                                                
 python -m app.ui.main_view                                                       # десктоп
 ```
 
-Размеченные шаблоны — в `templates/` (пересборка: `python -m tools.build_templates`);
+Размеченные шаблоны — в `app/templates/` (пересборка: `python -m tools.build_templates`);
 вместо них можно указать чистую официальную форму 2026 — она будет размечена автоматически.
 Демо без реальных данных: `python -m app.cli --db samples/план_пример.xlsx --input samples`.
 
 ## Тесты
 
 ```powershell
-pytest        # или tox — с проверкой покрытия ключевых модулей ≥95%
+pytest        # быстрый прогон
+tox           # тесты + лестница покрытия
+tox -e lint   # ruff + mypy
 ```
+
+Покрытие проверяется ступенями: ядро (`normalizer`, `word_extractor`) — ≥95%,
+генерация и оркестрация — ≥88%, весь код без Flet-разметки — ≥88%. Сама разметка
+порогом не защищена: тестами она по существу не покрывается.
 
 ## Структура
 
@@ -63,8 +69,8 @@ app/
 │   ├── word_generator.py   # рендеринг docxtpl + подсветка
 │   └── differ.py           # отчёт о расхождениях
 ├── services/orchestrator.py   # асинхронный ETL
-└── ui/                # Flet (декларативный)
-templates/             # размеченные шаблоны 2026
+├── ui/                # Flet (декларативный)
+└── templates/         # размеченные шаблоны 2026
 tools/build_templates.py
 tests/
 ```

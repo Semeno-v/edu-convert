@@ -23,7 +23,14 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8.3", "pytest-cov>=6.0", "pytest-asyncio>=0.24", "tox>=4.23"]
+dev = [
+    "pytest>=8.3",
+    "pytest-cov>=6.0",
+    "pytest-asyncio>=0.24",
+    "tox>=4.23",
+    "ruff>=0.9",
+    "mypy>=1.14",
+]
 
 [project.scripts]
 educonvert = "app.cli:main"
@@ -33,7 +40,13 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-packages = ["app", "app.core", "app.services", "app.ui", "app.ui.components"]
+# ``tools`` попадает в сборку не «на всякий случай»: orchestrator.py импортирует
+# tools.build_templates в рантайме, когда пользователь подсунул неразмеченную
+# официальную форму 2026 и её надо разметить на лету.
+packages = ["app", "app.core", "app.services", "app.ui", "app.ui.components", "tools"]
+
+[tool.setuptools.package-data]
+app = ["templates/*.docx"]
 
 # --------------------------------------------------------------------------- #
 #  Тесты и покрытие
@@ -43,10 +56,44 @@ testpaths = ["tests"]
 asyncio_mode = "auto"
 addopts = "-q"
 
+# --------------------------------------------------------------------------- #
+#  Линтер
+# --------------------------------------------------------------------------- #
+[tool.ruff]
+line-length = 100
+target-version = "py314"
+
+[tool.ruff.lint]
+select = ["F", "E", "W", "I", "UP", "B"]
+ignore = [
+    # Проект русскоязычный: 600+ «ёлочек», длинные тире и § в текстах и
+    # комментариях — не опечатки и не гомоглифы.
+    "RUF001",
+    "RUF002",
+    "RUF003",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# В тестах assert — основной инструмент, а не забытая отладка.
+"tests/*" = ["S101"]
+
+# ``ruff format`` намеренно не подключён: в разметке Flet и в таблицах
+# соответствий колонок выравнивание расставлено руками и читается лучше
+# автоформата.
+
 [tool.coverage.run]
-source = ["app.core.normalizer", "app.core.word_extractor"]
+source = ["app"]
+relative_files = true
 
 [tool.coverage.report]
 show_missing = true
-# Ключевая бизнес-логика в core/ покрывается не менее чем на 95% (ТЗ §7.5).
-fail_under = 95
+# Порогов несколько (см. tox.ini): coverage умеет только один fail_under на
+# прогон, поэтому пороги задаются флагами отдельных вызовов `coverage report`,
+# а не здесь.
+exclude_also = [
+    "^\\s*\\.\\.\\.$",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    # Windows-only ветка: на Linux, где гоняются тесты и CI, не исполняется.
+    "class WordComConverter",
+]

@@ -217,20 +217,30 @@ class AppState:
         return states
 
     # --- мутации --- #
+    # Каждый мутатор начинается со сброса ``error``: сообщение об ошибке
+    # относится к конкретной неудавшейся попытке, а раньше гасло только при
+    # запуске конвертации. Из-за этого «Не удалось прочитать папку» висело
+    # красной плашкой и после того, как пользователь успешно выбрал файлы
+    # другим способом. Присвоение того же ``""`` ничего не стоит: observable
+    # шлёт уведомление только при фактическом изменении значения.
     def set_db(self, path: str | None) -> None:
+        self.error = ""
         if path:
             self.db_path = Path(path)
 
     def set_rpd(self, path: str | None) -> None:
+        self.error = ""
         if path:
             self.rpd_path = Path(path)
 
     def set_fos(self, path: str | None) -> None:
+        self.error = ""
         if path:
             self.fos_path = Path(path)
 
     def add_files(self, paths: list[str]) -> int:
         """Добавляет .doc/.docx, пропуская дубли; возвращает число добавленных."""
+        self.error = ""
         existing = {str(p) for p in self.input_files}
         new = [
             Path(p) for p in paths
@@ -241,6 +251,7 @@ class AppState:
         return len(new)
 
     def add_dir(self, directory: str | None) -> int:
+        self.error = ""
         if not directory:
             return 0
         try:
@@ -258,6 +269,7 @@ class AppState:
         return self.add_files([str(p) for p in found])
 
     def clear_inputs(self) -> None:
+        self.error = ""
         self.input_files = []
 
     def remove_file(self, path: Path) -> None:
@@ -266,6 +278,7 @@ class AppState:
         Список переприсваивается (не мутируется in-place): ``@ft.observable``
         реагирует только на присваивание поля.
         """
+        self.error = ""
         self.input_files = [p for p in self.input_files if p != path]
 
     def toggle_theme(self) -> None:
@@ -276,8 +289,11 @@ class AppState:
     async def start(self, e: ft.Event[ft.Control] | None = None) -> None:
         if not self.ready:
             return
-        self._dispose_previous()
+        # ``running`` поднимается до очистки, а не после: удаление прошлой
+        # выдачи занимает заметное время, и всё это время интерфейс иначе
+        # выглядел бы готовым к ещё одному запуску.
         self.running = True
+        await self._dispose_previous()
         self.done = False
         self.error = ""
         self.results = []
@@ -322,12 +338,22 @@ class AppState:
             return Path(dest)
         return None
 
-    def _dispose_previous(self) -> None:
+    async def _dispose_previous(self) -> None:
+        """Убирает временную папку прошлого прогона (ТЗ §7.3).
+
+        Удаление уходит в поток по той же причине, что и копирование архива
+        выше: в папке лежит сотня сгенерированных .docx плюс ZIP, и
+        синхронный ``rmtree`` прямо здесь замораживал интерфейс на старте
+        каждой повторной конвертации.
+        """
         if self._run_result is not None:
-            self._run_result.cleanup()  # очистка temp прошлого прогона (ТЗ §7.3)
-            if self._run_result in _pending_cleanup:
-                _pending_cleanup.remove(self._run_result)
+            stale = self._run_result
             self._run_result = None
+            await asyncio.to_thread(stale.cleanup)
+            # Из списка на аварийную уборку снимаем только после удаления:
+            # оборвись процесс посреди rmtree, папку добьёт atexit-обработчик.
+            if stale in _pending_cleanup:
+                _pending_cleanup.remove(stale)
 
 
 def _name(path: Path | None) -> str | None:

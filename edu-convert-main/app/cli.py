@@ -6,7 +6,7 @@
         --out ./результат.zip
 
 Без ``--rpd-template`` / ``--fos-template`` берутся размеченные шаблоны из
-``templates/`` (см. :data:`app.config.settings`).
+``app/templates/`` (см. :data:`app.config.settings`).
 """
 
 from __future__ import annotations
