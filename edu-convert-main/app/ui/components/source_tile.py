@@ -64,7 +64,10 @@ def SourceTile(
         on_hover=lambda e: set_hovered(e.data),
         tooltip=full_path or "Нажмите, чтобы выбрать файл",
         bgcolor=p.card_hover if hovered else ft.Colors.TRANSPARENT,
-        border=ft.Border.all(1, p.hairline if not hovered else ft.Colors.with_opacity(0.4, ft.Colors.PRIMARY)),
+        border=ft.Border.all(
+            1,
+            ft.Colors.with_opacity(0.4, ft.Colors.PRIMARY) if hovered else p.hairline,
+        ),
         border_radius=theme.RADIUS_CONTROL,
         padding=ft.Padding.symmetric(horizontal=18, vertical=16),
         animate=ft.Animation(150, ft.AnimationCurve.EASE_OUT),

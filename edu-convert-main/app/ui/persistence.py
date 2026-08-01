@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 from pathlib import Path
@@ -18,7 +19,9 @@ _MAX_RECENT = 3
 def _read() -> dict:
     try:
         data = json.loads(_SETTINGS_PATH.read_text(encoding="utf-8"))
-    except Exception:
+    # OSError — файла нет или нет прав; ValueError — битый JSON или не-UTF-8
+    # (JSONDecodeError и UnicodeDecodeError оба наследуются от ValueError).
+    except (OSError, ValueError):
         return {}
     # Файл правят руками: если внутри оказался список или строка, вызывающий
     # код упал бы на data["ключ"] уже за пределами этого try.
@@ -33,7 +36,9 @@ def _write(data: dict) -> None:
     сбой посреди неё оставлял битый JSON, а он молча читается как пустой —
     пользователь терял все пути, историю баз и выбранную тему разом.
     """
-    try:
+    # Настройки — удобство, а не данные пользователя: диск только для чтения или
+    # нет прав на ~/.educonvert не повод прерывать работу приложения.
+    with contextlib.suppress(OSError):
         _SETTINGS_PATH.parent.mkdir(parents=True, exist_ok=True)
         tmp = _SETTINGS_PATH.with_name(f"{_SETTINGS_PATH.name}.{os.getpid()}.tmp")
         tmp.write_text(
@@ -41,8 +46,6 @@ def _write(data: dict) -> None:
             encoding="utf-8",
         )
         os.replace(tmp, _SETTINGS_PATH)
-    except Exception:
-        pass
 
 
 def load() -> dict:

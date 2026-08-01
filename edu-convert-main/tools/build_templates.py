@@ -24,14 +24,17 @@ import copy
 from pathlib import Path
 
 from docx import Document
+from docx.document import Document as DocxDocument
+from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
+from docx.shared import Pt
 from docx.text.paragraph import Paragraph
 
 from app.core.normalizer import normalize_text
 
 
-def strip_red_highlights(doc: Document) -> None:
+def strip_red_highlights(doc: DocxDocument) -> None:
     """Удаляет красные highlight-пометки (в т.ч. на знаках абзаца), унаследованные
     из исходной формы 2026. Жёлтые (наши) не трогаем."""
     for h in list(doc.element.body.iter(qn("w:highlight"))):
@@ -191,11 +194,9 @@ def n(text: str) -> str:
 # --------------------------------------------------------------------------- #
 #  РПД
 # --------------------------------------------------------------------------- #
-def _style_letterhead(doc: Document) -> None:
+def _style_letterhead(doc: DocxDocument) -> None:
     """Верхняя шапка титула («Федеральное государственное …», «„ГУУ“») —
     Tahoma 12 (требование кафедры; в форме размер не задан явно)."""
-    from docx.shared import Pt
-
     for p in doc.paragraphs:
         if not p.text.strip():
             break
@@ -216,11 +217,14 @@ def tag_rpd(src: Path, dst: Path) -> None:
         if "код и наименование дисциплины" in t and p.text.strip().isupper():
             set_value_tag(p, "{{ index }} {{ name }}")
         elif t.startswith("по направлению подготовки"):
-            set_label_value_underlined(p, "по направлению подготовки ", "{{ direction }}", value_prefix=" ", right_tab_twips=9638)
+            set_label_value_underlined(p, "по направлению подготовки ", "{{ direction }}",
+                                       value_prefix=" ", right_tab_twips=9638)
         elif t.startswith("направленности"):
-            set_label_value_underlined(p, "направленности (профиля) ", "{{ profile }}", right_tab_twips=9638)
+            set_label_value_underlined(p, "направленности (профиля) ", "{{ profile }}",
+                                       right_tab_twips=9638)
         elif t.startswith("форма обучения"):
-            set_label_value_underlined(p, "форма обучения ", "{{ form_study }}\xa0\xa0", value_prefix="\xa0\xa0", right_tab_twips=9638)
+            set_label_value_underlined(p, "форма обучения ", "{{ form_study }}\xa0\xa0",
+                                       value_prefix="\xa0\xa0", right_tab_twips=9638)
         elif "цели в исходной программе нет" in t:
             clear(p)  # целей в исходных РПД нет — раздел заполняется вручную
         # Subdoc-теги — с префиксом «p»: docxtpl убирает абзац-носитель и
@@ -243,7 +247,8 @@ def tag_rpd(src: Path, dst: Path) -> None:
         elif "берем из учебного плана" in t:
             clear(p)
         elif t.startswith("заседания кафедры"):
-            set_label_value_underlined(p, "заседания кафедры ", "{{ department_name }}", value_prefix="\xa0\xa0", tail=("\t ",))
+            set_label_value_underlined(p, "заседания кафедры ", "{{ department_name }}",
+                                       value_prefix="\xa0\xa0", tail=("\t ",))
         elif "методов в экономике и управлении" in t:
             to_remove.append(p)  # хвост захардкоженного названия кафедры (вторая строка)
         elif t.startswith("опк-1"):  # примеры компетенций/индикаторов
@@ -271,7 +276,7 @@ def tag_rpd(src: Path, dst: Path) -> None:
     print(f"[РПД] {src.name} → {dst}")
 
 
-def _tighten_title_before_moscow(doc: Document) -> None:
+def _tighten_title_before_moscow(doc: DocxDocument) -> None:
     """Убирает 2 пустых абзаца перед «Москва, …»: реальные значения титула
     (название, профиль) длиннее заглушек формы и «Москва» уезжала со страницы."""
     paragraphs = doc.paragraphs
@@ -289,7 +294,7 @@ def _tighten_title_before_moscow(doc: Document) -> None:
             break
 
 
-def _tidy_rpd_blanks(doc: Document) -> None:
+def _tidy_rpd_blanks(doc: DocxDocument) -> None:
     """Подгоняет пустые абзацы под эталонную вёрстку.
 
     Эталон держит ровно один пустой абзац после блоков §2 (компетенции,
@@ -297,12 +302,10 @@ def _tidy_rpd_blanks(doc: Document) -> None:
     paragraphs = doc.paragraphs
 
     def trim_after(idx: int, keep: int) -> None:
-        removed = 0
-        for q in paragraphs[idx + 1 :]:
+        for seen, q in enumerate(paragraphs[idx + 1 :], start=1):
             if q.text.strip():
                 break
-            removed += 1
-            if removed > keep:
+            if seen > keep:
                 remove_paragraph(q)
 
     for i, p in enumerate(paragraphs):
@@ -321,7 +324,7 @@ def _tidy_rpd_blanks(doc: Document) -> None:
                 remove_paragraph(q)
 
 
-def _clean_editorial(doc: Document) -> None:
+def _clean_editorial(doc: DocxDocument) -> None:
     """Убирает/заполняет оставшиеся редакторские пометки в РПД.
 
     * §3: убирает инструкции «Указать несколько тем…» и «Проверка итого…»
@@ -336,7 +339,9 @@ def _clean_editorial(doc: Document) -> None:
         if "проверка итого" in t or "исходная рпд п. п. 8" in t or "столбцы 2 и 5" in t:
             clear(p)
 
-    grade_level = {"отлично": "5", "хорошо": "4", "удовлетворительно": "3", "неудовлетворительно": "2"}
+    grade_level = {
+        "отлично": "5", "хорошо": "4", "удовлетворительно": "3", "неудовлетворительно": "2",
+    }
     for table in doc.tables:
         header = n(" ".join(c.text for c in table.rows[0].cells))
         if "формируемая компетенция" in header:  # §8 «Система оценивания»
@@ -369,7 +374,7 @@ def _clean_editorial(doc: Document) -> None:
                             clear(p)
 
 
-def _tag_hours_table(doc: Document) -> None:
+def _tag_hours_table(doc: DocxDocument) -> None:
     # строка-метка (нормализованная) → имя тега для колонки «Всего» (c2) и «семестр» (c3)
     row_tags = {
         "зач. ед.": "{{ ze }}",
@@ -401,8 +406,6 @@ def _tag_hours_table(doc: Document) -> None:
         # «4 семестр» в шапке колонки «Кол-во часов в семестре (ак.ч.)».
         header_row = table.rows[0]
         if len(header_row.cells) > 3:
-            from docx.enum.text import WD_ALIGN_PARAGRAPH
-
             sem_cell = header_row.cells[3]
             rpr = _capture_rpr(sem_cell.paragraphs[0])
             sem_p = sem_cell.add_paragraph()
@@ -441,11 +444,14 @@ def tag_fos(src: Path, dst: Path) -> None:
             set_value_tag(p, "{{ index }} {{ name }}")
         elif t.startswith("по направлению подготовки"):
             # Пробельные отступы перед значениями — как в форме/эталонах.
-            set_label_value_underlined(p, "по направлению подготовки ", "{{ direction }}", value_prefix=" ", right_tab_twips=9638)
+            set_label_value_underlined(p, "по направлению подготовки ", "{{ direction }}",
+                                       value_prefix=" ", right_tab_twips=9638)
         elif t.startswith("направленности"):
-            set_label_value_underlined(p, "направленности (профиля) ", "{{ profile }}", right_tab_twips=9638)
+            set_label_value_underlined(p, "направленности (профиля) ", "{{ profile }}",
+                                       right_tab_twips=9638)
         elif t.startswith("форма обучения"):
-            set_label_value_underlined(p, "форма обучения ", "{{ form_study }}  ", value_prefix="  ", right_tab_twips=9638)
+            set_label_value_underlined(p, "форма обучения ", "{{ form_study }}\xa0\xa0",
+                                       value_prefix="\xa0\xa0", right_tab_twips=9638)
         # Статики формы «Примерный перечень задач» / «Примерный состав тестовых
         # вопросов…» сохраняются (так в одобренных эталонах) — контент после них.
         elif "примерный перечень задач" in t:
@@ -455,7 +461,8 @@ def tag_fos(src: Path, dst: Path) -> None:
         elif t.startswith("задачи к разделу 1"):
             # Первая строка формы остаётся: индикаторы — из Базы (жёлтым),
             # разбивку по разделам уточняет методист. Контент задач — после неё.
-            set_label_value(p, "Задачи к разделу 1. (оцениваемая компетенция и индикатор ", "{{ fos_indicators }}")
+            set_label_value(p, "Задачи к разделу 1. (оцениваемая компетенция и индикатор ",
+                            "{{ fos_indicators }}")
             p.add_run(")")
             insert_after(p, "{{p current_control }}")
         elif t.startswith("задачи к разделу"):
@@ -465,7 +472,8 @@ def tag_fos(src: Path, dst: Path) -> None:
         elif "обязательно с ответами" in t:
             to_remove.append(p)
         elif t.startswith("заседания кафедры"):
-            set_label_value_underlined(p, "заседания кафедры ", "{{ department_name }}", value_prefix="  ", tail=("	 ",))
+            set_label_value_underlined(p, "заседания кафедры ", "{{ department_name }}",
+                                       value_prefix="\xa0\xa0", tail=("\t ",))
         elif "методов в экономике и управлении" in t:
             to_remove.append(p)  # хвост захардкоженного названия кафедры (вторая строка)
         elif "государственной итоговой" in t:
@@ -488,7 +496,7 @@ def tag_fos(src: Path, dst: Path) -> None:
     print(f"[ФОС] {src.name} → {dst}")
 
 
-def _fix_fos_page_break(doc: Document) -> None:
+def _fix_fos_page_break(doc: DocxDocument) -> None:
     """Раздел 1 начинает страницу свойством pageBreakBefore.
 
     В форме разрыв страницы — отдельный пустой абзац после «Москва, 2026»:

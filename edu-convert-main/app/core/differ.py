@@ -47,15 +47,18 @@ def compute_diffs(old: OldNumbers, subject: SubjectData) -> list[DiffRecord]:
             )
 
     # Семестр: старое значение должно входить в множество семестров эталона.
-    if old.semester is not None and subject.semesters:
-        if old.semester not in subject.semesters:
-            diffs.append(
-                DiffRecord(
-                    field="Семестр",
-                    old_value=str(old.semester),
-                    new_value=", ".join(str(s) for s in subject.semesters),
-                )
+    if (
+        old.semester is not None
+        and subject.semesters
+        and old.semester not in subject.semesters
+    ):
+        diffs.append(
+            DiffRecord(
+                field="Семестр",
+                old_value=str(old.semester),
+                new_value=", ".join(str(s) for s in subject.semesters),
             )
+        )
 
     # Форма контроля: вид (экзамен/зачёт) из старого файла должен встречаться
     # в эталонной сводке форм контроля.

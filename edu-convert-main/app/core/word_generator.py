@@ -18,11 +18,16 @@
 
 from __future__ import annotations
 
+import contextlib
+import copy
 import re
+import zipfile
 from pathlib import Path
+from typing import ClassVar
 
-from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_COLOR_INDEX
+from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.shared import Pt
+from docx.table import _Row
 from docxtpl import DocxTemplate
 
 from app.config import settings
@@ -61,8 +66,6 @@ class DocxtplGenerator:
 
     @staticmethod
     def _scan_tags(template_path: Path) -> set[str]:
-        import zipfile
-
         with zipfile.ZipFile(template_path) as zf:
             xml = zf.read("word/document.xml").decode("utf-8", "replace")
         text = re.sub(r"<[^>]+>", "", xml)
@@ -125,7 +128,9 @@ class DocxtplGenerator:
             "control_summary": subject.control_summary,
             # Вид аттестации строчными, без семестра — обе ячейки таблицы §3
             # эталона: «экзамен | экзамен».
-            "control_kind": ", ".join(dict.fromkeys(cf.kind.value for cf in subject.control_forms)).lower(),
+            "control_kind": ", ".join(
+                dict.fromkeys(cf.kind.value for cf in subject.control_forms)
+            ).lower(),
             "semesters": ", ".join(str(s) for s in subject.semesters),
             # «4 семестр» в шапке колонки «Кол-во часов в семестре» таблицы §3.
             "semester_label": _semester_label(subject.semesters),
@@ -150,8 +155,8 @@ class DocxtplGenerator:
                 context["outcomes_" + level] = outcomes.get(level, "")
             context["competencies"] = self._competencies_subdoc(tpl, subject)
             context["indicators"] = self._indicators_subdoc(tpl, subject)
-            context["literature_main"] = self._literature_subdoc(tpl, content.get("literature_main"))
-            context["literature_extra"] = self._literature_subdoc(tpl, content.get("literature_extra"))
+            for key in ("literature_main", "literature_extra"):
+                context[key] = self._literature_subdoc(tpl, content.get(key))
             # §4.3: только настоящие интернет-ресурсы (MS Teams и т.п.) —
             # ссылки на ЭБС дублируют статичный §5 и отфильтровываются
             # (эталоны: «Не предусмотрено.» либо нумерованный список).
@@ -179,7 +184,10 @@ class DocxtplGenerator:
             self._add_text(sd, _PLACEHOLDER, highlight=True, font_size_pt=12)
             return sd
         for group in subject.competencies:
-            self._add_text(sd, _dot(f"{group.code} - {group.text}".strip(" -")), highlight=True, font_size_pt=12)
+            self._add_text(
+                sd, _dot(f"{group.code} - {group.text}".strip(" -")),
+                highlight=True, font_size_pt=12,
+            )
         return sd
 
     def _indicators_subdoc(self, tpl: DocxTemplate, subject: SubjectData):
@@ -189,7 +197,9 @@ class DocxtplGenerator:
             self._add_text(sd, _PLACEHOLDER, highlight=True, font_size_pt=12)
             return sd
         for ind in indicators:
-            self._add_text(sd, _dot(f"{ind.code}. {ind.text}".strip()), highlight=True, font_size_pt=12)
+            self._add_text(
+                sd, _dot(f"{ind.code}. {ind.text}".strip()), highlight=True, font_size_pt=12
+            )
         return sd
 
     # ------------------------------------------------------------------ #
@@ -279,13 +289,15 @@ class DocxtplGenerator:
         # без выделения); параметр сохранён для точек вызова.
         return
 
-    def _add_text(self, sd, text: str, *, highlight: bool, font_size_pt: float | None = None) -> None:
+    def _add_text(
+        self, sd, text: str, *, highlight: bool, font_size_pt: float | None = None
+    ) -> None:
         run = sd.add_paragraph().add_run(text)
         if font_size_pt is not None:
             run.font.size = Pt(font_size_pt)
         self._hl(run, highlight)
 
-    _ALIGNMENTS = {
+    _ALIGNMENTS: ClassVar[dict[str, WD_ALIGN_PARAGRAPH]] = {
         "left": WD_ALIGN_PARAGRAPH.LEFT,
         "center": WD_ALIGN_PARAGRAPH.CENTER,
         "right": WD_ALIGN_PARAGRAPH.RIGHT,
@@ -336,10 +348,10 @@ class DocxtplGenerator:
         if ncols == 0:
             return
         table = sd.add_table(rows=len(rich.rows), cols=ncols)
-        try:
+        # Стиля «Table Grid» может не оказаться в шаблоне — таблица тогда просто
+        # останется без рамок, это не повод ронять перенос.
+        with contextlib.suppress(KeyError):
             table.style = "Table Grid"
-        except KeyError:
-            pass
         # Сначала восстанавливаем объединения (как в исходнике), потом заполняем.
         for ri, row in enumerate(rich.rows):
             for ci, cell in enumerate(row.cells):
@@ -347,10 +359,9 @@ class DocxtplGenerator:
                     continue
                 br = min(ri + cell.rowspan - 1, len(rich.rows) - 1)
                 bc = min(ci + cell.colspan - 1, ncols - 1)
-                try:
+                # Кривое объединение в исходнике не должно валить перенос.
+                with contextlib.suppress(Exception):
                     table.cell(ri, ci).merge(table.cell(br, bc))
-                except Exception:  # noqa: BLE001 — кривое объединение не валит перенос
-                    pass
         # Заполняются только ячейки-истоки: накрытые объединением позиции
         # помечены merged и пропускаются (table.cell для них вернул бы исток).
         # id()-кэш здесь недопустим: lxml-прокси временные, их адреса
@@ -412,8 +423,8 @@ def _assessment_outcomes(block: ContentBlock | None) -> dict[str, str]:
     order = ("знает", "умеет", "владеет")
     groups: dict[str, list[str]] = {k: [] for k in order}
     extras: list[str] = []
-    for req in dict.fromkeys(best):
-        req = req.strip().rstrip(".")  # точки на стыках «;» эталон срезает
+    for raw_req in dict.fromkeys(best):
+        req = raw_req.strip().rstrip(".")  # точки на стыках «;» эталон срезает
         verb = next((v for v in order if normalize_text(req).startswith(v)), None)
         if verb is None:
             extras.append(req)
@@ -438,7 +449,10 @@ def _table_to_citations(block: ContentBlock | None) -> list[str]:
     def col(*keywords: str) -> int | None:
         return next((i for i, h in enumerate(header) if any(k in h for k in keywords)), None)
 
-    ca, ct, co, cu = col("автор"), col("наименован", "назван"), col("выходн", "издат", "год"), col("url", "адрес", "ссылк", "доступ")
+    ca = col("автор")
+    ct = col("наименован", "назван")
+    co = col("выходн", "издат", "год")
+    cu = col("url", "адрес", "ссылк", "доступ")
     citations: list[str] = []
     for row in table.rows[1:]:
         cells = [_cell_text(c) for c in row.cells]
@@ -575,16 +589,12 @@ def _fill_topics_table(docx, block: ContentBlock | None, subject: SubjectData) -
     blanks = list(table.rows)[digit_idx + 1 :]
     if not blanks:
         return
-    import copy as _copy
-
-    proto = _copy.deepcopy(blanks[0]._tr)
+    proto = copy.deepcopy(blanks[0]._tr)
     for row in blanks:
         row._tr.getparent().remove(row._tr)
 
-    from docx.table import _Row
-
     def add_row(texts: list[str]) -> None:
-        tr = _copy.deepcopy(proto)
+        tr = copy.deepcopy(proto)
         table._tbl.append(tr)
         row = _Row(tr, table)
         for c, text in enumerate(texts):
@@ -686,6 +696,6 @@ def _decapitalize(text: str) -> str:
     return text
 
 
-def _num(value: float) -> str | int:
+def _num(value: float) -> int | float:
     """3.0 → 3, 2.5 → 2.5 (убираем хвост .0 для целых з.е.)."""
     return int(value) if float(value).is_integer() else value

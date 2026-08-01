@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import shutil
 import subprocess
 import sys
@@ -60,21 +61,19 @@ class WordComConverter:
             word.DisplayAlerts = 0
             document = word.Documents.Open(src, ReadOnly=True, AddToRecentFiles=False)
             document.SaveAs2(dst, FileFormat=self.doc_format)
-        except Exception as exc:  # noqa: BLE001 — любые COM-ошибки → доменная
+        except Exception as exc:  # любые COM-ошибки заворачиваем в доменную
             raise DocConversionError(
                 f"Не удалось конвертировать '{path.name}': {exc}"
             ) from exc
         finally:
+            # Освобождение COM-объектов: сбой здесь не должен подменять собой
+            # исходную ошибку конвертации, которая уже летит наверх.
             if document is not None:
-                try:
+                with contextlib.suppress(Exception):
                     document.Close(SaveChanges=False)
-                except Exception:  # noqa: BLE001, S110
-                    pass
             if word is not None:
-                try:
+                with contextlib.suppress(Exception):
                     word.Quit()
-                except Exception:  # noqa: BLE001, S110
-                    pass
             pythoncom.CoUninitialize()
 
         if not out_path.exists():

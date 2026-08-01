@@ -47,7 +47,8 @@ def _assessment_block() -> ContentBlock:
         RichTableRow(cells=[cell("Неудовлетворительно"), cell("ПК-1"), cell("Не знает X")]),
     ]
     return ContentBlock(key="assessment", title="Оценка качества",
-                        elements=[ContentElement(kind=ElementKind.TABLE, table=RichTable(rows=rows))])
+                        elements=[ContentElement(kind=ElementKind.TABLE,
+                                                 table=RichTable(rows=rows))])
 
 
 @pytest.fixture
@@ -65,9 +66,11 @@ def subject() -> SubjectData:
         competence_codes=("УК-1-И-1", "ПК-2-И-1"),
         competencies=(
             CompetencyGroup(code="УК-1", text="Способен критически мыслить",
-                            indicators=(CompetencyIndicator(code="УК-1-И-1", text="Анализирует проблему"),)),
+                            indicators=(CompetencyIndicator(code="УК-1-И-1",
+                                                            text="Анализирует проблему"),)),
             CompetencyGroup(code="ПК-2", text="Способен моделировать",
-                            indicators=(CompetencyIndicator(code="ПК-2-И-1", text="Строит модель"),)),
+                            indicators=(CompetencyIndicator(code="ПК-2-И-1",
+                                                            text="Строит модель"),)),
         ),
     )
 
@@ -174,7 +177,8 @@ def test_assessment_outcomes_credit_grade() -> None:
         RichTableRow(cells=[cell("Не зачтено"), cell("Не умеет X.")]),
     ]
     block = ContentBlock(key="assessment", title="8.1",
-                         elements=[ContentElement(kind=ElementKind.TABLE, table=RichTable(rows=rows))])
+                         elements=[ContentElement(kind=ElementKind.TABLE,
+                                                 table=RichTable(rows=rows))])
     out = _assessment_outcomes(block)
     assert out["5"] == "Обучающийся умеет X\aОбучающийся знает Y"
     assert "Не умеет" not in out["2"]
@@ -187,9 +191,12 @@ def test_internet_resources_filter_ebs(
     def cell(t: str) -> RichTableCell:
         return RichTableCell(paragraphs=[RichParagraph(runs=[RichRun(text=t)])])
     table = RichTable(rows=[
-        RichTableRow(cells=[cell("№"), cell("Наименование"), cell("Адрес доступа"), cell("Доступ")]),
-        RichTableRow(cells=[cell("1"), cell("ЭБС Znanium"), cell("https://znanium.com"), cell("Договор")]),
-        RichTableRow(cells=[cell("2"), cell("Команда в MS Teams «Курс»"), cell("https://teams.microsoft.com"), cell("Бесплатно")]),
+        RichTableRow(cells=[cell("№"), cell("Наименование"),
+                            cell("Адрес доступа"), cell("Доступ")]),
+        RichTableRow(cells=[cell("1"), cell("ЭБС Znanium"),
+                            cell("https://znanium.com"), cell("Договор")]),
+        RichTableRow(cells=[cell("2"), cell("Команда в MS Teams «Курс»"),
+                            cell("https://teams.microsoft.com"), cell("Бесплатно")]),
     ])
     cb = ContentBlocks(blocks={"internet_resources": ContentBlock(
         key="internet_resources", title="4.2",

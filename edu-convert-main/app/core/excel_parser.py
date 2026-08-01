@@ -59,7 +59,7 @@ def _read_grid(path: Path, sheet: str) -> list[list[str]]:
             has_header=False,
             read_options={"header_row": None},
         )
-    except Exception as exc:  # noqa: BLE001 — оборачиваем в доменную ошибку
+    except Exception as exc:  # оборачиваем в доменную ошибку
         raise ExcelParseError(f"Не удалось прочитать лист '{sheet}': {exc}") from exc
     return [[_cell_to_str(v) for v in row] for row in df.iter_rows()]
 
@@ -94,8 +94,8 @@ class ExcelSubjectRepository:
             for value in row:
                 if not value:
                     continue
-                for line in str(value).splitlines():
-                    line = line.strip()
+                for raw_line in str(value).splitlines():
+                    line = raw_line.strip()
                     norm = normalize_text(line)
                     m = re.match(r"^(\d{2}\.\d{2}\.\d{2})[\s–-]+(.+)$", line)
                     if m and self.direction is None:
@@ -128,7 +128,11 @@ class ExcelSubjectRepository:
         )
         for row in grid:
             code = next(
-                (row[c].strip() for c in range(min(content_col, len(row))) if _CODE_RE.match(row[c].strip())),
+                (
+                    row[c].strip()
+                    for c in range(min(content_col, len(row)))
+                    if _CODE_RE.match(row[c].strip())
+                ),
                 None,
             )
             if code and code not in self._comp_text:

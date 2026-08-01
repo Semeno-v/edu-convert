@@ -60,14 +60,19 @@ BLOCK_RULES: list[tuple[str, tuple[str, ...]]] = [
     # --- РПД ---
     ("goals", ("цели освоения", "цель дисциплины")),
     ("competencies", ("компетенц", "планируемые результаты")),
-    ("thematic_plan", ("тематическ", "траектори", "структура и содержание", "содержание дисциплины")),
+    ("thematic_plan", (
+        "тематическ", "траектори", "структура и содержание", "содержание дисциплины",
+    )),
     ("literature_main", ("основная литература",)),
     ("literature_extra", ("дополнительная литература",)),
     ("periodicals", ("периодическ",)),
     ("methodical", ("методические указания",)),
     # «Дополнительные средства обучения (в т.ч. on-line курсы)» — тоже
     # интернет-ресурсы: их таблицы (например, «Совнет») сохраняются в §4.3.
-    ("internet_resources", ("интернет", "электронные образовательные", "профессиональные базы", "справочные систем", "дополнительные средства обучения")),
+    ("internet_resources", (
+        "интернет", "электронные образовательные", "профессиональные базы",
+        "справочные систем", "дополнительные средства обучения",
+    )),
     ("software", ("программное обеспечение", "лицензионное")),
     ("facilities", ("материально-техническ", "технические средства", "помещения")),
     ("assessment", ("оценочные средства", "оценка качества", "система оцениван", "шкала оцениван")),
@@ -92,8 +97,13 @@ _FOS_KEYS = frozenset({"self_study_questions", "current_control", "interim_attes
 # Ненумерованные подзаголовки-маркеры в ФОС: тип вопросов определяет целевой
 # раздел (так разложены одобренные эталоны: задачи → §1, тесты → §2).
 _FOS_MARKERS: tuple[tuple[str | None, tuple[str, ...]], ...] = (
-    ("current_control", ("развернутым ответом", "развернутый ответ", "перечень задач", "открытого типа")),
-    ("interim_attestation", ("тестовых вопрос", "тестовые вопрос", "тестовых задани", "тестовые задани", "закрытого типа")),
+    ("current_control", (
+        "развернутым ответом", "развернутый ответ", "перечень задач", "открытого типа",
+    )),
+    ("interim_attestation", (
+        "тестовых вопрос", "тестовые вопрос", "тестовых задани", "тестовые задани",
+        "закрытого типа",
+    )),
     (None, ("описание шкал",)),  # None → сток (контент отбрасывается)
 )
 
@@ -167,10 +177,7 @@ def _has_heading_style(paragraph: Paragraph) -> bool:
 
 def _iter_block_items(parent: DocxDocument | _Cell):
     """Итерирует абзацы и таблицы в порядке следования в документе/ячейке."""
-    if isinstance(parent, DocxDocument):
-        parent_elm = parent.element.body
-    else:
-        parent_elm = parent._tc
+    parent_elm = parent.element.body if isinstance(parent, DocxDocument) else parent._tc
     for child in parent_elm.iterchildren():
         if isinstance(child, CT_P):
             yield Paragraph(child, parent)
@@ -210,14 +217,18 @@ class _NumberingModel:
         self._levels: dict[tuple[int, int], tuple[str, str, int]] = {}
         self._counters: dict[tuple[int, int], int] = {}
         try:
-            root = doc.part.part_related_by(RT.NUMBERING).element
+            # part_related_by объявлен возвращающим базовый Part, а .element есть
+            # только у XmlPart; отсутствие атрибута тут же ловится ниже.
+            root = doc.part.part_related_by(RT.NUMBERING).element  # type: ignore[attr-defined]
         except (KeyError, AttributeError):
             return
         abstract: dict[int, dict[int, tuple[str, str, int]]] = {}
         for an in root.findall(qn("w:abstractNum")):
             levels: dict[int, tuple[str, str, int]] = {}
             for lvl in an.findall(qn("w:lvl")):
-                fmt_el, txt_el, start_el = (lvl.find(qn(t)) for t in ("w:numFmt", "w:lvlText", "w:start"))
+                fmt_el, txt_el, start_el = (
+                    lvl.find(qn(t)) for t in ("w:numFmt", "w:lvlText", "w:start")
+                )
                 levels[int(lvl.get(qn("w:ilvl")))] = (
                     fmt_el.get(qn("w:val")) if fmt_el is not None else "decimal",
                     txt_el.get(qn("w:val")) if txt_el is not None else "%1.",
@@ -256,7 +267,9 @@ class _NumberingModel:
         if task_style:
             # Формат одобренных эталонов ФОС: вопросы — «Задача № N: …».
             return f"Задача № {self._render_level(num_id, ilvl)}: "
-        rendered = re.sub(r"%(\d)", lambda m: self._render_level(num_id, int(m.group(1)) - 1), lvl_text)
+        rendered = re.sub(
+            r"%(\d)", lambda m: self._render_level(num_id, int(m.group(1)) - 1), lvl_text
+        )
         if not rendered:
             return ""
         # Варианты ответов «N)» в эталонах отделены табом, прочее — пробелом.
@@ -352,7 +365,11 @@ def table_to_rich(table: Table) -> RichTable:
             while c + colspan < len(tc_grid[r]) and tc_grid[r][c + colspan] is tc:
                 colspan += 1
             rowspan = 1
-            while r + rowspan < nrows and c < len(tc_grid[r + rowspan]) and tc_grid[r + rowspan][c] is tc:
+            while (
+                r + rowspan < nrows
+                and c < len(tc_grid[r + rowspan])
+                and tc_grid[r + rowspan][c] is tc
+            ):
                 rowspan += 1
             cells.append(
                 RichTableCell(
@@ -380,7 +397,7 @@ class WordExtractor:
     def _open(self, doc_path: Path) -> DocxDocument:
         try:
             return Document(str(doc_path))
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:  # битый или чужой формат — в доменную ошибку
             raise DocumentParseError(f"Не удалось открыть '{doc_path.name}': {exc}") from exc
 
     # ------------------------------------------------------------------ #
@@ -474,7 +491,9 @@ class WordExtractor:
             (
                 c
                 for c, label in enumerate(col_labels)
-                if "контрол" in label and "самоконтрол" not in label and "самостоятельн" not in label
+                if "контрол" in label
+                and "самоконтрол" not in label
+                and "самостоятельн" not in label
             ),
             None,
         )
@@ -579,7 +598,11 @@ class WordExtractor:
                         if doc_type == DocType.FOS and current.key != IGNORED_KEY:
                             # Нумерованные вопросы в ФОС — формат эталона
                             # «Задача № N: …»; решение по первому абзацу уровня.
-                            if props not in task_levels and "?" in text and numbering.is_decimal_dot(*props):
+                            if (
+                                props not in task_levels
+                                and "?" in text
+                                and numbering.is_decimal_dot(*props)
+                            ):
                                 task_levels.add(props)
                             task = props in task_levels
                         rich.runs[0].text = rich.runs[0].text.lstrip()
@@ -596,7 +619,7 @@ class WordExtractor:
 
     def _fill_title_meta(self, doc: DocxDocument, result: ContentBlocks) -> None:
         paragraphs = [p.text.strip() for p in doc.paragraphs[:30]]
-        for i, text in enumerate(paragraphs):
+        for text in paragraphs:
             if not text:
                 continue
             if result.index is None:

@@ -7,11 +7,11 @@ from app.core.models import ControlForm, ControlKind, OldNumbers, SubjectData
 
 
 def _subject(**kw: object) -> SubjectData:
-    base = dict(
-        index="Б1.О.01", name="Тест", ze=3.0, hours_total=108,
-        hours_lectures=12, hours_practical=10, hours_lab=0, hours_project=6,
-        control_forms=(ControlForm(kind=ControlKind.CREDIT, semester=1),),
-    )
+    base = {
+        "index": "Б1.О.01", "name": "Тест", "ze": 3.0, "hours_total": 108,
+        "hours_lectures": 12, "hours_practical": 10, "hours_lab": 0, "hours_project": 6,
+        "control_forms": (ControlForm(kind=ControlKind.CREDIT, semester=1),),
+    }
     base.update(kw)
     return SubjectData(**base)
 
@@ -35,7 +35,9 @@ def test_multiple_numeric_discrepancies() -> None:
     old = OldNumbers(ze=4, hours_total=144, hours_lectures=16, hours_practical=32)
     diffs = compute_diffs(old, _subject())
     fields = {d.field for d in diffs}
-    assert fields == {"Зачётные единицы (з.е.)", "Всего часов", "Лекции, часов", "Практические, часов"}
+    assert fields == {
+        "Зачётные единицы (з.е.)", "Всего часов", "Лекции, часов", "Практические, часов",
+    }
 
 
 def test_none_fields_skipped() -> None:

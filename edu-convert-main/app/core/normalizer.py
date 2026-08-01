@@ -152,7 +152,7 @@ def to_float(value: object) -> float | None:
 def to_int(value: object) -> int | None:
     """Безопасно приводит ячейку к int (``«12»``, ``«12.0»``, ``12.0`` → 12)."""
     number = to_float(value)
-    return int(round(number)) if number is not None else None
+    return round(number) if number is not None else None
 
 
 def as_int(value: object, default: int = 0) -> int:

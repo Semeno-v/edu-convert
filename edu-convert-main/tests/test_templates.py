@@ -88,7 +88,9 @@ def test_rpd_template_has_expected_tags() -> None:
     # thematic_plan тегом не является: официальную таблицу тем заполняет
     # генератор после рендера (часы масштабируются к Базе).
     tags = DocxTemplate(str(settings.rpd_template)).get_undeclared_template_variables()
-    for tag in ("competence_parents", "competencies", "indicators", "control_kind", "hours_self_study"):
+    for tag in (
+        "competence_parents", "competencies", "indicators", "control_kind", "hours_self_study",
+    ):
         assert tag in tags, f"в шаблоне РПД нет тега {tag}"
 
 

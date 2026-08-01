@@ -22,7 +22,7 @@ import shutil
 import uuid
 import zipfile
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 
 import anyio
@@ -148,11 +148,12 @@ class Orchestrator:
     # ------------------------------------------------------------------ #
     #  Инициализация
     # ------------------------------------------------------------------ #
-    def _initialize(self, workdir: Path | None = None) -> None:
+    def _initialize(self, workdir: Path | None = None) -> ExcelSubjectRepository:
         if self._repo is None:
             self._repo = load_repository(self.db_path, settings.plan_sheet)
         self.rpd_template = self._ensure_tagged(self.rpd_template, DocType.RPD, workdir)
         self.fos_template = self._ensure_tagged(self.fos_template, DocType.FOS, workdir)
+        return self._repo
 
     def _ensure_tagged(self, path: Path, doc_type: DocType, workdir: Path | None) -> Path:
         """Возвращает размеченный шаблон; чистую официальную форму размечает на лету.
@@ -186,10 +187,10 @@ class Orchestrator:
 
     @property
     def repository(self) -> ExcelSubjectRepository:
-        if self._repo is None:
-            self._initialize()
-        assert self._repo is not None
-        return self._repo
+        # Инициализация возвращает репозиторий, а не только раскладывает его по
+        # полям: иначе здесь пришлось бы страховаться assert-ом, а он исчезает
+        # при запуске с -O.
+        return self._repo if self._repo is not None else self._initialize()
 
     # ------------------------------------------------------------------ #
     #  Обработка одного файла (изоляция сбоев)
@@ -214,7 +215,7 @@ class Orchestrator:
                 status=FileStatus.ERROR,
                 message=str(exc),
             )
-        except Exception as exc:  # noqa: BLE001 — изоляция: любой сбой → строка ошибки
+        except Exception as exc:  # изоляция сбоя: любая ошибка → строка в отчёте
             logger.exception("Непредвиденная ошибка при обработке %s", path.name)
             return FileResult(
                 filename=path.name,

@@ -279,7 +279,8 @@ def test_bold_numbered_list_headings(extractor: WordExtractor, tmp_path: Path) -
     _numbered(doc, "")  # numPr добавим вручную ниже на заголовок
     # numPr на жирный заголовок
     numPr = OxmlElement("w:numPr")
-    nid = OxmlElement("w:numId"); nid.set(qn("w:val"), "7")
+    nid = OxmlElement("w:numId")
+    nid.set(qn("w:val"), "7")
     numPr.append(nid)
     h._p.get_or_add_pPr().append(numPr)
     doc.add_paragraph("Иванов И.И. Книга про язык.")
@@ -301,9 +302,11 @@ def test_styled_headings_without_numbers(extractor: WordExtractor, tmp_path: Pat
 
     h = styles.add_style("Кастомный заголовок", WD_STYLE_TYPE.PARAGRAPH)
     h.base_style = styles["Heading 2"]
-    p1 = doc.add_paragraph("Основная литература"); p1.style = h
+    p1 = doc.add_paragraph("Основная литература")
+    p1.style = h
     doc.add_paragraph("Иванов И.И. Книга.")
-    p2 = doc.add_paragraph("Дополнительная литература"); p2.style = h
+    p2 = doc.add_paragraph("Дополнительная литература")
+    p2.style = h
     doc.add_paragraph("Петров П.П. Другая книга.")
     path = tmp_path / "styled.docx"
     doc.save(str(path))

@@ -17,7 +17,7 @@
 from __future__ import annotations
 
 import re
-from enum import Enum
+from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -26,7 +26,7 @@ from pydantic import BaseModel, ConfigDict, Field
 # --------------------------------------------------------------------------- #
 
 
-class ControlKind(str, Enum):
+class ControlKind(StrEnum):
     """Форма промежуточной аттестации."""
 
     EXAM = "Экзамен"
@@ -171,7 +171,7 @@ class RichTable(BaseModel):
     rows: list[RichTableRow] = Field(default_factory=list)
 
 
-class ElementKind(str, Enum):
+class ElementKind(StrEnum):
     PARAGRAPH = "paragraph"
     TABLE = "table"
 
@@ -238,7 +238,7 @@ class DiffRecord(BaseModel):
     new_value: str
 
 
-class FileStatus(str, Enum):
+class FileStatus(StrEnum):
     SUCCESS = "Успешно"
     DISCREPANCY = "Расхождение"
     ERROR = "Ошибка"
@@ -252,7 +252,7 @@ _FOS_MARKERS = frozenset({"ФОС", "FOS"})
 _NAME_TOKEN_RE = re.compile(r"[^0-9A-Za-zА-Яа-яЁё]+")
 
 
-class DocType(str, Enum):
+class DocType(StrEnum):
     RPD = "РПД"
     FOS = "ФОС"
     UNKNOWN = "Неизвестно"

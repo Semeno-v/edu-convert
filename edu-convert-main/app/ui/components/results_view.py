@@ -14,7 +14,7 @@ import flet as ft
 
 from app.core.models import FileResult, FileStatus
 from app.ui import theme
-from app.ui.components.status_badge import Pill, StatCard, StatusBadge, status_colors
+from app.ui.components.status_badge import Pill, StatCard, StatusBadge
 
 SUMMARY = "summary"
 DIFFS = "diffs"

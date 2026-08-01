@@ -86,7 +86,9 @@ def test_auto_tags_official_form(plan_xlsx: Path, rpd_docx: Path) -> None:
     result.cleanup()
 
 
-def test_template_without_tags_clear_error(plan_xlsx: Path, rpd_docx: Path, empty_docx: Path) -> None:
+def test_template_without_tags_clear_error(
+    plan_xlsx: Path, rpd_docx: Path, empty_docx: Path
+) -> None:
     # Файл без тегов и не похожий на форму — понятная ошибка с подсказкой.
     import pytest
 
