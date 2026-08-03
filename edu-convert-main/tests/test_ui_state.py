@@ -192,6 +192,35 @@ def test_dispose_previous_removes_workdir_and_forgets_it(tmp_path: Path) -> None
     assert stale not in state_mod._pending_cleanup
 
 
+def test_start_clears_previous_status_before_disposing(
+    tmp_path: Path, plan_xlsx: Path
+) -> None:
+    """Итог прошлого прогона гаснет до уборки, а не после неё.
+
+    Уборка выдачи с сотней документов длится несколько секунд, и всё это время
+    в строке состояния висело «Готово: успешно N…» от предыдущего запуска —
+    поверх уже начавшегося нового.
+    """
+    seen: list[tuple[bool, str, float]] = []
+    state = AppState()
+    state.db_path = plan_xlsx
+    state.input_files = [str(tmp_path / "РПД.docx")]
+    state._run_result = _spent_run(tmp_path, "run_1")
+    state.status = "Готово: успешно 3, расхождений 0, ошибок 0"
+    state.progress = 1.0
+    state.done = True
+
+    async def spy() -> None:
+        seen.append((state.running, state.status, state.progress))
+
+    state._dispose_previous = spy  # type: ignore[method-assign]
+    # Оркестратор до работы не дойдёт: РПД.docx не существует, и start()
+    # свалится в except. Нас интересует только состояние на входе в уборку.
+    anyio.run(state.start)
+
+    assert seen == [(True, "Подготовка…", 0.0)]
+
+
 def test_cleanup_pending_clears_everything_at_exit(tmp_path: Path) -> None:
     # atexit-обработчик — последняя линия: без него временные папки оставались
     # на диске навсегда (ТЗ §7.3).

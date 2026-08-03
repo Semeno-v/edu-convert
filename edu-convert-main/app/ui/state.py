@@ -252,17 +252,19 @@ class AppState:
         db_path = self.db_path
         if not self.ready or db_path is None:
             return
-        # ``running`` поднимается до очистки, а не после: удаление прошлой
-        # выдачи занимает заметное время, и всё это время интерфейс иначе
-        # выглядел бы готовым к ещё одному запуску.
+        # Всё, что осталось от прошлого прогона, гасим до очистки, а не после:
+        # удаление прошлой выдачи занимает заметное время, и всё это время в
+        # строке состояния иначе висело бы «Готово: успешно N…» от предыдущего
+        # запуска поверх уже начавшегося нового.
         self.running = True
-        await self._dispose_previous()
         self.done = False
         self.error = ""
         self.results = []
         self.progress = 0.0
         self.processed = 0
+        self.status = "Подготовка…"
         self.view = SETUP
+        await self._dispose_previous()
 
         def on_progress(done: int, total: int, message: str) -> None:
             self.progress = done / max(total, 1)
